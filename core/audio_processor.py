@@ -4,34 +4,32 @@ import torch
 import os
 import time 
 
-from utils import constants # Assuming constants.py is in utils
+from utils import constants
 from .diarization_handler import DiarizationHandler
 from .transcription_handler import TranscriptionHandler
 
 logger = logging.getLogger(__name__)
 
 class ProcessedAudioResult:
-    def __init__(self, status, data=None, message=None, is_plain_text_output=False): # Added flag
+    def __init__(self, status, data=None, message=None, is_plain_text_output=False):
         self.status = status 
-        self.data = data # Can be list of strings (segments) or a single string (plain text)
+        self.data = data
         self.message = message
         self.is_plain_text_output = is_plain_text_output
-
 
 class AudioProcessor:
     def __init__(self, config: dict, progress_callback=None, 
                  enable_diarization=True, include_timestamps=True, 
-                 include_end_times=False, enable_auto_merge=False):
+                 include_end_times=False, enable_auto_merge=False, cache_dir=None): # MODIFIED: Added cache_dir
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"AudioProcessor: Using device: {self.device}")
 
         self.progress_callback = progress_callback
-        # These flags now determine the *output format intention*
         self.output_enable_diarization = enable_diarization 
         self.output_include_timestamps = include_timestamps
-        self.output_include_end_times = include_end_times # Dependent on include_timestamps
-        self.output_enable_auto_merge = enable_auto_merge # Dependent on enable_diarization
+        self.output_include_end_times = include_end_times
+        self.output_enable_auto_merge = enable_auto_merge
 
         self.diarization_handler = None 
 
@@ -39,7 +37,6 @@ class AudioProcessor:
                     f"Timestamps: {self.output_include_timestamps}, Include End Times: {self.output_include_end_times}, "
                     f"Auto Merge: {self.output_enable_auto_merge}")
 
-        # Diarization handler is initialized if diarization output is intended AND possible
         if self.output_enable_diarization:
             huggingface_config = config.get('huggingface', {})
             use_auth_token_flag = str(huggingface_config.get('use_auth_token', 'no')).lower() == 'yes'
@@ -50,12 +47,11 @@ class AudioProcessor:
                 hf_token=hf_token_val,
                 use_auth_token_flag=use_auth_token_flag,
                 device=self.device,
-                progress_callback=self.progress_callback 
+                progress_callback=self.progress_callback,
+                cache_dir=cache_dir # MODIFIED: Pass cache_dir
             )
             if not self.diarization_handler.is_model_loaded():
                 logger.warning("AudioProcessor: DiarizationHandler initialized, but model failed to load. Diarization will be unavailable.")
-                # self.output_enable_diarization = False # Downgrade intention if model load fails
-                # self.output_enable_auto_merge = False
         else:
             logger.info("AudioProcessor: Diarization output not requested. DiarizationHandler will not be initialized.")
 
@@ -63,7 +59,8 @@ class AudioProcessor:
         self.transcription_handler = TranscriptionHandler(
             model_name=whisper_model_name,
             device=self.device,
-            progress_callback=self.progress_callback
+            progress_callback=self.progress_callback,
+            cache_dir=cache_dir # MODIFIED: Pass cache_dir
         )
 
     def _report_progress(self, message: str, percentage: int = None):
@@ -79,7 +76,7 @@ class AudioProcessor:
             logger.error("AudioProcessor: CRITICAL - Transcription model not loaded.")
             return False
 
-        if self.output_enable_diarization: # Check based on output intention
+        if self.output_enable_diarization:
             if self.diarization_handler and self.diarization_handler.is_model_loaded():
                 logger.info("AudioProcessor: Diarization intended, and its model is loaded.")
             else:
@@ -135,7 +132,7 @@ class AudioProcessor:
         return aligned_segment_dicts
 
     def _perform_auto_merge(self, segment_dicts: list[dict]) -> list[dict]:
-        if not self.output_enable_auto_merge or not segment_dicts: # Check against output_enable_auto_merge
+        if not self.output_enable_auto_merge or not segment_dicts:
             logger.debug(f"Auto-merge skipped. OutputEnableAutoMerge: {self.output_enable_auto_merge}, Segments provided: {bool(segment_dicts)}")
             return segment_dicts
 
@@ -178,7 +175,7 @@ class AudioProcessor:
 
         for seg_dict in segment_dicts:
             parts = []
-            if include_ts_in_format: # Use passed-in formatting flags
+            if include_ts_in_format:
                 ts_start_str = self._format_time(seg_dict['start_time'])
                 if include_end_ts_in_format and seg_dict.get('end_time') is not None:
                     ts_end_str = self._format_time(seg_dict['end_time'])
@@ -196,7 +193,6 @@ class AudioProcessor:
     def process_audio(self, audio_path: str) -> ProcessedAudioResult:
         overall_start_time = time.time()
         
-        # Determine if diarization will actually be attempted based on intent AND model readiness
         diarization_will_be_attempted = self.output_enable_diarization and \
                                         self.diarization_handler and \
                                         self.diarization_handler.is_model_loaded()
@@ -218,10 +214,10 @@ class AudioProcessor:
                 diarization_result_obj = self.diarization_handler.diarize(audio_path)
                 if diarization_result_obj is None:
                     logger.warning("Diarization process completed but returned no usable result object.")
-            elif self.output_enable_diarization: # User wanted it, but model wasn't ready
+            elif self.output_enable_diarization:
                 logger.warning("Diarization was requested, but DiarizationHandler/model is not available. Skipping diarization.")
                 self._report_progress("Diarization skipped (model/token issue).", 25)
-            else: # User did not want diarization
+            else:
                 logger.info("AudioProcessor: Diarization not requested by user settings.")
                 self._report_progress("Diarization skipped by user setting.", 25)
 
@@ -234,7 +230,6 @@ class AudioProcessor:
             if not transcription_output_dict['segments']:
                  return ProcessedAudioResult(status=constants.STATUS_EMPTY, message="No speech detected during transcription.")
 
-            # --- Plain Text Output Logic ---
             is_plain_text_format_requested = not self.output_include_timestamps and not self.output_enable_diarization
             
             final_data_for_result: any
@@ -243,7 +238,7 @@ class AudioProcessor:
             if is_plain_text_format_requested:
                 logger.info("Plain text output requested. Concatenating segments.")
                 all_texts = [seg.get('text', '').strip() for seg in transcription_output_dict['segments']]
-                final_data_for_result = " ".join(filter(None, all_texts)) # Join with space, filter empty strings
+                final_data_for_result = " ".join(filter(None, all_texts))
                 is_plain_text_result = True
                 self._report_progress("Formatting as plain text...", 90)
             else:
@@ -264,7 +259,7 @@ class AudioProcessor:
                      return ProcessedAudioResult(status=constants.STATUS_EMPTY, message="Alignment produced no segments.")
 
                 final_segments_to_process_further = intermediate_segment_dicts
-                if self.output_enable_auto_merge and diarization_will_be_attempted: # Auto-merge only if diarization was attempted
+                if self.output_enable_auto_merge and diarization_will_be_attempted:
                     logger.info("Auto-merge is enabled and diarization was attempted. Performing merge...")
                     final_segments_to_process_further = self._perform_auto_merge(intermediate_segment_dicts)
                 else:
@@ -273,10 +268,10 @@ class AudioProcessor:
                 final_data_for_result = self._format_segment_dictionaries_to_strings(
                     final_segments_to_process_further,
                     include_ts_in_format=self.output_include_timestamps,
-                    include_end_ts_in_format=self.output_include_timestamps and self.output_include_end_times, # end times depend on timestamps
-                    include_speakers_in_format=diarization_will_be_attempted # speakers only if diarization ran
+                    include_end_ts_in_format=self.output_include_timestamps and self.output_include_end_times,
+                    include_speakers_in_format=diarization_will_be_attempted
                 )
-                is_plain_text_result = False # It's a list of formatted strings
+                is_plain_text_result = False
                 
                 if not final_data_for_result or (isinstance(final_data_for_result, list) and final_data_for_result and "Error:" in final_data_for_result[0]):
                      return ProcessedAudioResult(status=constants.STATUS_EMPTY, message=final_data_for_result[0] if final_data_for_result else "Formatting produced no lines.")
@@ -312,15 +307,15 @@ class AudioProcessor:
                 if is_plain_text:
                     if isinstance(data_to_save, str):
                         f.write(data_to_save)
-                    else: # Should not happen if logic is correct
+                    else:
                         logger.error("save_to_txt: Expected a string for plain text, got %s", type(data_to_save))
                         f.write(str(data_to_save) if data_to_save is not None else "Error: Invalid plain text data.")
-                elif isinstance(data_to_save, list): # List of formatted segment strings
+                elif isinstance(data_to_save, list):
                     for segment_line in data_to_save:
                         f.write(segment_line + '\n')
-                elif data_to_save is None: # Explicitly handle None if it can occur
+                elif data_to_save is None:
                     f.write("No transcription results or error during processing.\n")
-                else: # Fallback for unexpected data type
+                else:
                     logger.error("save_to_txt: Unexpected data type to save: %s", type(data_to_save))
                     f.write(str(data_to_save))
 

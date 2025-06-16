@@ -28,16 +28,7 @@ if getattr(sys, 'frozen', False):
         # If the patch fails, this will attempt to write to the (now safe) stderr.
         print(f"Error applying tqdm patch: {e}", file=sys.stderr)
 
-# --- FIX FOR VIRTUAL MACHINE FILE SYSTEM ISSUES ---
-# Set a dedicated cache directory for the Whisper model.
-cache_dir_path = "C:\\TranscriptionOli_Cache"
-if sys.platform == "win32" and not os.path.exists(cache_dir_path):
-    try:
-        os.makedirs(cache_dir_path)
-        os.environ['XDG_CACHE_HOME'] = cache_dir_path
-    except OSError:
-        # Fallback if C: drive is not writable, though unlikely.
-        pass
+# --- OLD CACHE LOGIC REMOVED FROM HERE ---
 
 import threading
 import tkinter as tk
@@ -409,6 +400,10 @@ class MainApp:
                                            initial_diarization_enabled_from_ui=None,
                                            initial_auto_merge_enabled_from_ui=None):
         
+        # --- NEW CACHE LOGIC ---
+        # Create a visible cache directory in the user's home folder. This is the recommended location.
+        cache_dir_path = os.path.join(os.path.expanduser('~'), 'TranscriptionOli_Cache')
+        
         current_enable_diarization = initial_diarization_enabled_from_ui \
             if is_initial_setup and initial_diarization_enabled_from_ui is not None \
             else (self.ui.enable_diarization_var.get() if hasattr(self, 'ui') and self.ui else False)
@@ -464,12 +459,14 @@ class MainApp:
                     'huggingface': {'use_auth_token': 'yes' if use_auth else 'no', 'hf_token': hf_token},
                     'transcription': {'model_name': actual_whisper_model_name}
                 }
+                # --- PASS THE CACHE DIRECTORY ---
                 self.audio_processor = AudioProcessor(
                     config=processor_config, progress_callback=current_progress_callback,
                     enable_diarization=current_enable_diarization,
                     include_timestamps=current_include_timestamps,
                     include_end_times=current_include_end_times,
-                    enable_auto_merge=current_auto_merge_enabled
+                    enable_auto_merge=current_auto_merge_enabled,
+                    cache_dir=cache_dir_path  # Pass the new cache path here
                 )
                 if not self.audio_processor.are_models_loaded(): 
                     err_msg = "AudioProcessor critical models (transcription) failed to load. Check logs."

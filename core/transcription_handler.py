@@ -1,79 +1,80 @@
 # core/transcription_handler.py
 import logging
-import torch
+import os
 import whisper
-import time 
 
 logger = logging.getLogger(__name__)
 
 class TranscriptionHandler:
-    def __init__(self, model_name="large", device=None, progress_callback=None):
-        # Ensure model_name is a valid Whisper model string (e.g., "tiny", "base", "small", "medium", "large")
-        # The mapping from UI selection like "large (recommended)" to "large" happens in MainApp.
+    def __init__(self, model_name, device, progress_callback=None, cache_dir=None):
+        """
+        Initializes the TranscriptionHandler.
+
+        Args:
+            model_name (str): The name of the Whisper model to load.
+            device (str): The device to run the model on ('cpu' or 'cuda').
+            progress_callback (function, optional): A callback for reporting progress.
+            cache_dir (str, optional): The root directory for caching models.
+        """
         self.model_name = model_name
-        self.device = device if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         self.progress_callback = progress_callback
-        self.model = None
-        self._load_model() # Load model during initialization
+        self.cache_dir = cache_dir  # Store the cache directory
+        self.model = self._load_model()
 
     def _report_progress(self, message: str, percentage: int = None):
+        """Safely calls the progress callback if it exists."""
         if self.progress_callback:
             try:
                 self.progress_callback(message, percentage)
             except Exception as e:
-                logger.error(f"Error in TranscriptionHandler's progress_callback: {e}", exc_info=True)
-
-    def _load_model(self):
-        # Progress reporting: Using a generic "Transcription model" since specific name is already in message
-        self._report_progress(f"Transcription model ({self.model_name}): Initializing...", 15) 
-        logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') on device '{self.device}'...")
-        try:
-            self.model = whisper.load_model(self.model_name, device=self.device)
-            logger.info(f"TranscriptionHandler: Whisper model '{self.model_name}' loaded successfully.")
-            self._report_progress(f"Transcription model ({self.model_name}): Loaded.", 20)
-        except Exception as e:
-            logger.exception(f"TranscriptionHandler: Error loading Whisper model ('{self.model_name}').")
-            self._report_progress(f"Transcription model ({self.model_name}): Load Error ({str(e)[:50]}...).", 15)
-            self.model = None # Ensure model is None if loading fails
+                logger.error(f"Error in TranscriptionHandler progress_callback: {e}", exc_info=True)
 
     def is_model_loaded(self) -> bool:
+        """Checks if the model has been loaded successfully."""
         return self.model is not None
 
-    def transcribe(self, audio_path: str) -> dict:
-        if not self.is_model_loaded():
-            logger.error("TranscriptionHandler: Model not initialized. Skipping transcription.")
-            self._report_progress("Transcription: Skipped (model not loaded).", 55)
-            return {'text': '', 'segments': []}
-
-        logger.info(f"TranscriptionHandler: Starting transcription for {audio_path} using model '{self.model_name}'...")
-        self._report_progress(f"Transcription ({self.model_name}): Analysis starting...", 55)
+    def _load_model(self):
+        """
+        Loads the Whisper model, using a specified cache directory if provided.
+        """
+        logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') on device '{self.device}'...")
+        self._report_progress(f"Loading transcription model '{self.model_name}'...")
         
-        decoding_options_dict = {"fp16": self.device.type == "cuda"}
-        logger.debug(f"Transcription decoding options: {decoding_options_dict}")
+        # --- MODIFIED CACHE LOGIC ---
+        # Determine the specific path for whisper models and ensure it exists.
+        whisper_cache_path = None
+        if self.cache_dir:
+            try:
+                # Models will be stored in a 'whisper' subdirectory of the main cache folder.
+                whisper_cache_path = os.path.join(self.cache_dir, "whisper")
+                os.makedirs(whisper_cache_path, exist_ok=True)
+                logger.info(f"Ensured Whisper model cache directory exists: {whisper_cache_path}")
+            except OSError as e:
+                logger.error(f"Could not create cache directory {whisper_cache_path}. Models will use default cache. Error: {e}")
+                whisper_cache_path = None # Fallback to default if creation fails
 
-        start_time = time.time()
         try:
-            result = self.model.transcribe(audio_path, **decoding_options_dict, verbose=None)
-            duration = time.time() - start_time
-            logger.info(f"TranscriptionHandler: Analysis for '{audio_path}' took {duration:.2f}s.")
+            # Pass the explicit download_root to the load_model function.
+            # If whisper_cache_path is None, whisper uses its default location.
+            model = whisper.load_model(self.model_name, device=self.device, download_root=whisper_cache_path)
             
-            if not isinstance(result, dict) or 'segments' not in result or 'text' not in result:
-                logger.warning(f"Whisper result for '{audio_path}' has unexpected structure: {type(result)}")
-                self._report_progress("Transcription: Malformed result.", 70)
-                return {'text': str(result.get('text','')) if isinstance(result, dict) else '', 'segments': []}
-
-            if not result['segments']:
-                logger.info(f"Whisper produced no segments for '{audio_path}'. Text: '{result.get('text','')}'")
-                self._report_progress("Transcription: No speech segments detected.", 70)
-            else:
-                num_segments = len(result['segments'])
-                logger.info(f"Transcription complete for '{audio_path}'. Found {num_segments} segment(s).")
-                self._report_progress(f"Transcription: Analysis complete ({num_segments} segment(s)).", 70)
-            
-            return result
-        
+            logger.info(f"TranscriptionHandler: Whisper model '{self.model_name}' loaded successfully.")
+            self._report_progress(f"Transcription model '{self.model_name}' loaded.", 100)
+            return model
         except Exception as e:
-            duration = time.time() - start_time
-            logger.exception(f"Error during Whisper transcription for {audio_path} after {duration:.2f}s.")
-            self._report_progress(f"Transcription: Error ({str(e)[:50]}...).", 55)
-            return {'text': '', 'segments': []}
+            logger.error(f"Error loading Whisper model: {e}", exc_info=True)
+            self._report_progress(f"Error loading model: {e}", 0)
+            raise
+
+    def transcribe(self, audio_path: str):
+        """Transcribes the audio file."""
+        logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
+        try:
+            # The verbose parameter prints detailed progress to the console, which can be useful for debugging.
+            result = self.model.transcribe(audio_path, verbose=False)
+            logger.info("TranscriptionHandler: Transcription completed successfully.")
+            return result
+        except Exception as e:
+            logger.error(f"Error during transcription: {e}", exc_info=True)
+            raise
