@@ -764,7 +764,7 @@ class CorrectionWindow:
         if not target_segment: return
         self.text_edit_mode_active, self.editing_segment_id, self.text_content_start_index_in_edit = True, segment_id_to_edit, None 
         self.ui.transcription_text.config(state=tk.NORMAL)
-        self._toggle_global_ui_for_edit_mode(disable=True, keep_playback_controls_enabled=False) 
+        self._toggle_global_ui_for_edit_mode(disable=True, keep_playback_controls_enabled=True) 
         text_tag_id = target_segment.get("text_tag_id")
         if not text_tag_id: self._exit_text_edit_mode(save_changes=False); return
         try:
