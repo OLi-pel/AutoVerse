@@ -162,6 +162,38 @@ class SegmentManager:
                 return True
         return False
 
+
+    def update_segment_from_full_line(self, segment_id: str, full_line_text: str):
+        segment = self.get_segment_by_id(segment_id)
+        if not segment:
+            logger.warning(f"Could not find segment {segment_id} to update.")
+            return
+
+        line = full_line_text.strip()
+        text_content = line
+        
+        # Re-build the prefix based on the segment's actual data
+        prefix_parts = []
+        if segment.get("has_timestamps"):
+            prefix_parts.append(f"[{self.seconds_to_time_str(segment.get('start_time', 0))}]")
+        
+        speaker_label = segment.get("speaker_raw")
+        if speaker_label and speaker_label != constants.NO_SPEAKER_LABEL:
+            display_name = self.speaker_map.get(speaker_label, speaker_label)
+            prefix_parts.append(f"{display_name}:")
+
+        # Join parts and see if the line starts with it
+        # This handles cases with and without timestamps/speakers gracefully.
+        if prefix_parts:
+            # We must be careful about space handling
+            prefix_str = " ".join(prefix_parts)
+            if line.startswith(prefix_str):
+                 # +1 to account for the space after the prefix
+                text_content = line[len(prefix_str):].lstrip()
+            
+        segment['text'] = text_content
+        logger.info(f"Updated segment {segment_id} with new text: '{segment['text']}'")
+
     def _validate_timestamp_values(self, segment_id_being_edited: str, 
                                    new_start_time: float | None, 
                                    new_end_time: float | None) -> tuple[bool, str | None]:

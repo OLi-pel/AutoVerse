@@ -1,133 +1,168 @@
-# ui/launch_screen.py (PySide6 Version)
-
-import sys
+# ui/launch_screen.py
+import tkinter as tk
+from tkinter import ttk
+import os
+from PIL import Image, ImageTk # Ensure Pillow is imported
 import logging
-from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QProgressBar, 
-                               QVBoxLayout)
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
 
-# Initialize logger for this module
 logger = logging.getLogger(__name__)
 
-class LaunchScreen(QWidget):
-    """
-    A launch screen window implemented with PySide6 (Qt).
-    This window displays a loading message and a progress bar while the main
-    application initializes in the background.
-    """
-    def __init__(self, parent=None):
-        """
-        Initializes the launch screen widget.
-        """
-        super().__init__(parent)
+class LaunchScreen(tk.Toplevel):
+    def __init__(self, master):
+        super().__init__(master)
+        self.master = master
+        self.overrideredirect(True)
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        # Launch screen width is 50% of screen width
+        self.window_width = screen_width // 2
+        self.window_height = 500 # You can adjust this height
+
+        x = (screen_width // 2) - (self.window_width // 2)
+        y = (screen_height // 2) - (self.window_height // 2)
+        self.geometry(f'{self.window_width}x{self.window_height}+{x}+{y}')
+
+        self.bg_color = "white" # Default fallback
+        try:
+            s = ttk.Style(self)
+            if 'clam' in s.theme_names(): s.theme_use('clam')
+            elif 'alt' in s.theme_names(): s.theme_use('alt')
+            self.bg_color = s.lookup('TFrame', 'background')
+        except tk.TclError:
+            logger.warning("LaunchScreen: Could not lookup TFrame background, using default.")
+        self.configure(background=self.bg_color)
+
+        # Main frame with padding
+        main_frame_padding = 20
+        main_frame = ttk.Frame(self, padding=(main_frame_padding, main_frame_padding, main_frame_padding, main_frame_padding))
+        main_frame.pack(expand=True, fill=tk.BOTH)
+
+        app_name_label = ttk.Label(main_frame, text="Transcription dev test", font=("Helvetica", 24, "bold"))
+        app_name_label.pack(pady=(10, 5)) # Adjusted padding
+
+        self.loading_label_text = tk.StringVar(value="Loading application, please wait...")
+        loading_label = ttk.Label(main_frame, textvariable=self.loading_label_text, font=("Helvetica", 14))
+        loading_label.pack(pady=5)
+
+        self.gif_label = ttk.Label(main_frame)
+        self.gif_label.pack(pady=10) # Adjusted padding
         
-        # --- Window Properties ---
-        self.setWindowTitle("Transcription Oli - Loading...")
-        # Set the window to be a frameless splash screen.
-        self.setWindowFlags(Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint)
-        self.setFixedSize(400, 200) # A fixed size for a simple launch screen
+        self.frames = []
+        self.current_frame_idx = 0
+        self.gif_delay = 100
+        self.after_id = None
 
-        # --- Widget Creation ---
-        # Main title label
-        self.title_label = QLabel("Transcription Oli")
-        font = QFont()
-        font.setPointSize(24)
-        font.setBold(True)
-        self.title_label.setFont(font)
-        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Define max dimensions for the GIF based on window size and padding
+        # Max width: window width - (2 * frame_padding) - some_extra_margin_for_gif
+        self.max_gif_width = self.window_width - (2 * main_frame_padding) - 200 
+        # Max height: Consider available space after labels and padding
+        # Approx: window_height - (2*frame_padding) - app_name_pady - loading_label_pady - gif_label_pady_top - gif_label_pady_bottom
+        approx_label_space = (10+5) + 5 + (10) # Approximate Y padding for labels
+        self.max_gif_height = self.window_height - (2*main_frame_padding) - approx_label_space - 200 # Extra bottom margin for GIF
 
-        # Label to display loading status messages
-        self.loading_label = QLabel("Initializing...")
-        font = QFont()
-        font.setPointSize(12)
-        self.loading_label.setFont(font)
-        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Progress bar
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0) # Set to indeterminate (busy) mode
-        self.progress_bar.setTextVisible(False)
-
-        # --- Layout ---
-        # QVBoxLayout arranges widgets vertically.
-        layout = QVBoxLayout()
-        layout.addStretch() # Add stretchable space to push content to the center
-        layout.addWidget(self.title_label)
-        layout.addWidget(self.loading_label)
-        layout.addWidget(self.progress_bar)
-        layout.addStretch() # Add more stretchable space at the bottom
-
-        self.setLayout(layout)
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            gif_name = "loading-7528.gif" # Your GIF name
+            gif_path = os.path.join(current_dir, gif_name)
+            self.load_gif(gif_path)
+        except NameError:
+            gif_path = os.path.join("ui", "loading-7528.gif")
+            self.load_gif(gif_path)
         
-        logger.info("PySide6 LaunchScreen initialized.")
+        self.lift()
+        self.attributes('-topmost', True)
+        self.update_idletasks()
 
-    def update_text(self, text: str):
-        """
-        Updates the loading status message text.
-        This method can be called from another thread via signals if needed,
-        but for simple startup, direct calls before showing are fine.
-        """
-        self.loading_label.setText(text)
-        logger.debug(f"Launch screen text updated to: '{text}'")
-        # In Qt, changes are typically batched and drawn in the next event loop cycle.
-        # For immediate updates, you can call QApplication.processEvents(),
-        # but it's often not necessary.
+    def load_gif(self, gif_path):
+        logger.info(f"LaunchScreen: Attempting to load GIF from: {gif_path}")
+        try:
+            gif_image_pil = Image.open(gif_path)
+            logger.info(f"LaunchScreen: GIF opened. Is animated: {getattr(gif_image_pil, 'is_animated', False)}, N_frames: {getattr(gif_image_pil, 'n_frames', 1)}")
+            
+            idx = 0
+            self.frames = [] 
+            while True:
+                try:
+                    gif_image_pil.seek(idx)
+                    current_pil_frame = gif_image_pil.copy()
 
-    def center_on_screen(self):
-        """
-        Centers the launch screen on the primary monitor.
-        """
-        if self.parent():
-            # Center on the parent widget if one is provided
-            parent_geo = self.parent().geometry()
-            self.move(parent_geo.center() - self.rect().center())
+                    # --- RESIZING LOGIC ---
+                    original_width, original_height = current_pil_frame.size
+                    
+                    # Calculate new dimensions maintaining aspect ratio
+                    # Use self.max_gif_width and self.max_gif_height defined in __init__
+                    ratio = 1.0
+                    if original_width > self.max_gif_width or original_height > self.max_gif_height:
+                        ratio = min(self.max_gif_width / original_width, self.max_gif_height / original_height)
+                    
+                    if ratio < 1.0: # Only resize if it's larger than max dimensions
+                        new_width = int(original_width * ratio)
+                        new_height = int(original_height * ratio)
+                        logger.info(f"Resizing frame {idx} from {original_width}x{original_height} to {new_width}x{new_height}")
+                        resized_pil_frame = current_pil_frame.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    else:
+                        resized_pil_frame = current_pil_frame # No resize needed
+                    # --- END RESIZING LOGIC ---
+
+                    self.frames.append(ImageTk.PhotoImage(resized_pil_frame))
+                    idx += 1
+                except EOFError:
+                    logger.info(f"LaunchScreen: Reached EOF after {idx} frames.")
+                    break 
+                except Exception as frame_e:
+                    logger.error(f"LaunchScreen: Error processing frame {idx}: {frame_e}", exc_info=True)
+                    break
+            
+            if self.frames:
+                logger.info(f"LaunchScreen: Loaded {len(self.frames)} frames for GIF.")
+                self.gif_delay = gif_image_pil.info.get('duration', 100)
+                if self.gif_delay == 0: self.gif_delay = 100 
+                logger.info(f"LaunchScreen: GIF delay set to {self.gif_delay} ms.")
+                self.animate_gif()
+            else:
+                logger.warning("LaunchScreen: No frames loaded for GIF.")
+                self.loading_label_text.set("Loading... (GIF error or no frames)")
+                self.gif_label.configure(text="[GIF Error - No Frames]")
+
+        except ImportError: # Should not happen if Pillow is installed
+            logger.error("LaunchScreen: Pillow library (PIL) not found.", exc_info=True)
+            self.loading_label_text.set("Loading... (Pillow library needed for GIF)")
+            self.gif_label.configure(text="[Pillow Missing]")
+        except FileNotFoundError:
+            logger.error(f"LaunchScreen: GIF file not found at: {gif_path}", exc_info=True)
+            self.loading_label_text.set(f"Loading... (GIF not found)")
+            self.gif_label.configure(text="[GIF Not Found]")
+        except Exception as e:
+            logger.error(f"LaunchScreen: General error loading GIF: {e}", exc_info=True)
+            self.loading_label_text.set(f"Loading... (GIF load error)")
+            self.gif_label.configure(text=f"[GIF Load Error]")
+
+    def animate_gif(self):
+        if not self.frames or not self.winfo_exists():
+            logger.warning("LaunchScreen: animate_gif - No frames or window destroyed. Stopping animation.")
+            if self.after_id:
+                self.after_cancel(self.after_id)
+                self.after_id = None
+            return
+        
+        logger.info(f"LaunchScreen: Animating GIF frame {self.current_frame_idx + 1}/{len(self.frames)}") 
+
+        frame_image = self.frames[self.current_frame_idx]
+        self.gif_label.configure(image=frame_image)
+        self.gif_label.image = frame_image # Keep explicit reference
+
+        self.current_frame_idx += 1
+        if self.current_frame_idx >= len(self.frames):
+            self.current_frame_idx = 0 
+            
+        if self.winfo_exists():
+            self.after_id = self.after(self.gif_delay, self.animate_gif)
         else:
-            # Otherwise, center on the screen
-            screen = QApplication.primaryScreen().geometry()
-            self.move(screen.center() - self.rect().center())
+            logger.warning("LaunchScreen: animate_gif - Window destroyed during animation loop.")
 
-    def show_and_process(self):
-        """
-        A convenience method to show the screen and ensure it's displayed immediately.
-        """
-        self.center_on_screen()
-        self.show()
-        # Process any pending events to make sure the window is drawn.
-        QApplication.processEvents()
-
-# --- Example Usage (for testing this file directly) ---
-if __name__ == '__main__':
-    # This block allows you to run this file by itself to see how the launch screen looks.
-    # It demonstrates how it will be integrated into the main application.
-
-    # Every Qt application needs one QApplication instance.
-    app = QApplication(sys.argv)
-
-    # Create the launch screen
-    launch_screen = LaunchScreen()
-    launch_screen.show_and_process()
-
-    # --- Simulate a loading process ---
-    def update_step_1():
-        launch_screen.update_text("Loading transcription models...")
-
-    def update_step_2():
-        launch_screen.update_text("Initializing diarization pipeline...")
-    
-    def update_step_3():
-        launch_screen.update_text("Finalizing UI...")
-
-    def do_close():
-        launch_screen.close()
-        # In a real app, you would show your main window here before closing.
-        # app.quit() # Uncomment to make the test app exit after closing.
-
-    # Use QTimer to simulate work being done without blocking the UI.
-    QTimer.singleShot(1500, update_step_1)
-    QTimer.singleShot(3000, update_step_2)
-    QTimer.singleShot(4500, update_step_3)
-    QTimer.singleShot(6000, do_close)
-    
-    # Start the Qt event loop.
-    sys.exit(app.exec())
+    def close(self):
+        if self.after_id:
+            self.after_cancel(self.after_id)
+        self.destroy()

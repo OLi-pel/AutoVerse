@@ -622,7 +622,7 @@
               </layout>
              </item>
              <item>
-              <widget class="QTextEdit" name="correction_text_area"/>
+              <widget class="SelectableTextEdit" name="correction_text_area"/>
              </item>
             </layout>
            </widget>
@@ -637,6 +637,13 @@
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>SelectableTextEdit</class>
+   <extends>QTextEdit</extends>
+   <header>ui.selectable_text_edit</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

@@ -1,199 +1,325 @@
-# core/audio_processor.py (With Stream Capture)
-
+# core/audio_processor.py
 import logging
+import torch
 import os
-import time
+import time 
 
-from .transcription_handler import TranscriptionHandler
-from .diarization_handler import DiarizationHandler
 from utils import constants
-from utils.streams import TqdmSignalStream
+from .diarization_handler import DiarizationHandler
+from .transcription_handler import TranscriptionHandler
 
 logger = logging.getLogger(__name__)
 
 class ProcessedAudioResult:
-    def __init__(self, status: str, message: str, data: list | str | None = None, is_plain_text_output: bool = False):
-        self.status = status
-        self.message = message
+    def __init__(self, status, data=None, message=None, is_plain_text_output=False):
+        self.status = status 
         self.data = data
+        self.message = message
         self.is_plain_text_output = is_plain_text_output
 
 class AudioProcessor:
-    def __init__(self, config: dict, progress_callback=None,
-                 enable_diarization: bool = False, include_timestamps: bool = True,
-                 include_end_times: bool = False, enable_auto_merge: bool = False, cache_dir: str = None):
+    def __init__(self, config: dict, progress_callback=None, 
+                 enable_diarization=True, include_timestamps=True, 
+                 include_end_times=False, enable_auto_merge=False, cache_dir=None): # MODIFIED: Added cache_dir
         
-        self.device = "cpu"
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"AudioProcessor: Using device: {self.device}")
+
         self.progress_callback = progress_callback
-        self.output_enable_diarization = enable_diarization
+        self.output_enable_diarization = enable_diarization 
         self.output_include_timestamps = include_timestamps
         self.output_include_end_times = include_end_times
         self.output_enable_auto_merge = enable_auto_merge
-        
-        logger.info(f"AudioProcessor initializing. Diarization: {self.output_enable_diarization}, Timestamps: {self.output_include_timestamps}")
 
-        self.diarization_handler = None
+        self.diarization_handler = None 
+
+        logger.info(f"AudioProcessor initializing. Output intends Diarization: {self.output_enable_diarization}, "
+                    f"Timestamps: {self.output_include_timestamps}, Include End Times: {self.output_include_end_times}, "
+                    f"Auto Merge: {self.output_enable_auto_merge}")
+
         if self.output_enable_diarization:
-            try:
-                hf_config = config.get('huggingface', {})
-                use_auth = hf_config.get('use_auth_token', 'no').lower() == 'yes'
-                hf_token = hf_config.get('hf_token')
-                if use_auth and hf_token:
-                    # Corrected keyword from `use_auth_token` to `auth_token`
-                    self.diarization_handler = DiarizationHandler(auth_token=hf_token, cache_dir=cache_dir)
-                else:
-                    logger.warning("Diarization requested but no Hugging Face token provided. Disabling.")
-                    self.output_enable_diarization = False
-            except Exception as e:
-                logger.error(f"Failed to initialize DiarizationHandler: {e}", exc_info=True)
-                self.output_enable_diarization = False
+            huggingface_config = config.get('huggingface', {})
+            use_auth_token_flag = str(huggingface_config.get('use_auth_token', 'no')).lower() == 'yes'
+            hf_token_val = huggingface_config.get('hf_token') if use_auth_token_flag else None
+            
+            logger.info("AudioProcessor: Diarization output requested, attempting to initialize DiarizationHandler.")
+            self.diarization_handler = DiarizationHandler(
+                hf_token=hf_token_val,
+                use_auth_token_flag=use_auth_token_flag,
+                device=self.device,
+                progress_callback=self.progress_callback,
+                cache_dir=cache_dir # MODIFIED: Pass cache_dir
+            )
+            if not self.diarization_handler.is_model_loaded():
+                logger.warning("AudioProcessor: DiarizationHandler initialized, but model failed to load. Diarization will be unavailable.")
+        else:
+            logger.info("AudioProcessor: Diarization output not requested. DiarizationHandler will not be initialized.")
 
+        whisper_model_name = config.get('transcription', {}).get('model_name', 'large')
         self.transcription_handler = TranscriptionHandler(
-            model_name=config.get('transcription', {}).get('model_name', 'large'),
+            model_name=whisper_model_name,
             device=self.device,
-            cache_dir=cache_dir
+            progress_callback=self.progress_callback,
+            cache_dir=cache_dir # MODIFIED: Pass cache_dir
         )
-        
+
+    def _report_progress(self, message: str, percentage: int = None):
+        if self.progress_callback:
+            try:
+                self.progress_callback(message, percentage)
+            except Exception as e:
+                logger.error(f"Error in AudioProcessor's progress_callback: {e}", exc_info=True)
+
     def are_models_loaded(self) -> bool:
-        if not self.transcription_handler or not self.transcription_handler.is_model_loaded():
+        trans_loaded = self.transcription_handler.is_model_loaded()
+        if not trans_loaded:
+            logger.error("AudioProcessor: CRITICAL - Transcription model not loaded.")
             return False
-        if self.output_enable_diarization and (not self.diarization_handler or not self.diarization_handler.is_model_loaded()):
-            return False
+
+        if self.output_enable_diarization:
+            if self.diarization_handler and self.diarization_handler.is_model_loaded():
+                logger.info("AudioProcessor: Diarization intended, and its model is loaded.")
+            else:
+                logger.warning("AudioProcessor: Diarization intended, but its model is NOT loaded. Diarization will be unavailable.")
         return True
 
-    def process_audio(self, audio_path: str) -> ProcessedAudioResult:
-        start_time = time.time()
-        diarization_was_attempted = self.output_enable_diarization and self.diarization_handler and self.diarization_handler.is_model_loaded()
-        
-        diarization_turns = None
-        if diarization_was_attempted:
-            if self.progress_callback: self.progress_callback("Diarizing speakers...", 5)
-            diarization_turns = self.diarization_handler.diarize(audio_path)
-            if self.progress_callback: self.progress_callback("Diarization complete.", 20)
-        else:
-            # If not attempting diarization, set progress to a baseline starting point
-            if self.progress_callback: self.progress_callback("Starting transcription...", 5)
-        
-        try:
-            if self.progress_callback: self.progress_callback("Transcribing...", 25)
-            
-            # Create the stream object to capture progress from tqdm
-            tqdm_stream = TqdmSignalStream()
-            
-            if self.progress_callback:
-                # Connect the stream's emitter signal to our main progress callback
-                # This maps whisper's 0-100% to our overall progress range.
-                # If diarization happened, transcription is 25%-95% of the work (70% range).
-                # If no diarization, transcription is 5%-95% of the work (90% range).
-                progress_start = 25 if diarization_was_attempted else 5
-                progress_range = 70 if diarization_was_attempted else 90
-                
-                tqdm_stream.emitter.progress_updated.connect(
-                    lambda percentage: self.progress_callback(f"Transcribing... {percentage}%", progress_start + int(percentage * (progress_range / 100.0)))
-                )
+    def _align_outputs(self, diarization_annotation, transcription_result_dict: dict, diarization_actually_performed: bool) -> list[dict]:
+        if not transcription_result_dict or not transcription_result_dict.get('segments'):
+            logger.error("Alignment Error: Transcription data unavailable for alignment.")
+            return [{'start_time': 0, 'end_time': 0, 'speaker': 'ERROR', 'text': 'Transcription data unavailable'}]
 
-            transcription_result = self.transcription_handler.transcribe(audio_path, tqdm_stream=tqdm_stream)
-        except Exception as e:
-            logger.error(f"Transcription failed for {audio_path}: {e}", exc_info=True)
-            return ProcessedAudioResult(constants.STATUS_ERROR, f"Transcription failed: {e}")
-            
-        if not transcription_result:
-            return ProcessedAudioResult(constants.STATUS_EMPTY, "Transcription returned no result.")
-            
-        if self.progress_callback: self.progress_callback("Aligning results...", 95)
-        aligned_segments = self._align_outputs(transcription_result, diarization_turns)
+        transcription_segments = transcription_result_dict['segments']
+        aligned_segment_dicts = []
         
-        if not aligned_segments:
-            return ProcessedAudioResult(constants.STATUS_EMPTY, "Could not produce any segments after alignment.")
-        
-        if self.output_enable_auto_merge and diarization_was_attempted:
-            final_segments = self._perform_auto_merge(aligned_segments)
-        else:
-            final_segments = aligned_segments
-
-        if self.progress_callback: self.progress_callback("Formatting output...", 98)
-        formatted_output = self._format_output(final_segments)
-        
-        if self.progress_callback: self.progress_callback("Processing complete!", 100)
-        
-        end_time = time.time()
-        logger.info(f"Total audio processing for {os.path.basename(audio_path)} completed in {end_time - start_time:.2f}s.")
-        
-        return ProcessedAudioResult(constants.STATUS_SUCCESS, "Processing successful.", formatted_output, is_plain_text_output=False)
-
-    def _align_outputs(self, transcription_result: list, diarization_result: list | None) -> list:
-        if not diarization_result:
+        diar_turns = []
+        if diarization_actually_performed and diarization_annotation and diarization_annotation.labels():
+            try:
+                for turn, _, speaker_label in diarization_annotation.itertracks(yield_label=True):
+                    diar_turns.append({'start': turn.start, 'end': turn.end, 'speaker': speaker_label})
+                logger.info(f"Prepared {len(diar_turns)} diarization turns for alignment.")
+            except Exception as e:
+                logger.warning(f"Could not process diarization tracks for alignment: {e}. Proceeding without diarization-based speaker assignment.")
+                diar_turns = [] 
+        elif not diarization_actually_performed:
             logger.info("Alignment: Diarization was not performed for this run.")
-            aligned_segments = []
-            for seg in transcription_result:
-                aligned_segments.append({
-                    "start": seg['start'], "end": seg['end'],
-                    "text": seg['text'].strip(), "speaker": constants.NO_SPEAKER_LABEL
-                })
-            return aligned_segments
-        
-        logger.info(f"Prepared {len(diarization_result)} diarization turns for alignment.")
-        from whisper_timestamp_plus import assign_word_speakers
-        
-        try:
-            assign_word_speakers(diarization_result, transcription_result)
-            final_segments, current_segment = [], None
-            if transcription_result and 'words' in transcription_result[0]:
-                for seg in transcription_result:
-                    for word in seg['words']:
-                        speaker = word.get('speaker', constants.NO_SPEAKER_LABEL)
-                        if current_segment is None:
-                            current_segment = {'start': word['start'], 'end': word['end'], 'text': word['word'], 'speaker': speaker}
-                        elif current_segment['speaker'] != speaker:
-                            final_segments.append(current_segment)
-                            current_segment = {'start': word['start'], 'end': word['end'], 'text': word['word'], 'speaker': speaker}
-                        else:
-                            current_segment['text'] += ' ' + word['word']
-                            current_segment['end'] = word['end']
-                if current_segment: final_segments.append(current_segment)
-            else:
-                 logger.warning("Word-level timestamps not found in transcription result. Cannot perform speaker alignment.")
-                 return self._align_outputs(transcription_result, None)
-            return final_segments
-        except Exception as e:
-            logger.error(f"Error during word-level speaker assignment: {e}", exc_info=True)
-            return self._fallback_segment_alignment(transcription_result, diarization_result)
+        elif diarization_actually_performed and (not diarization_annotation or not diarization_annotation.labels()):
+             logger.info("Alignment: Diarization was attempted, but no diarization tracks/labels found. Speakers will be UNKNOWN.")
 
-    def _fallback_segment_alignment(self, transcription_result, diarization_result):
-        logger.info("Performing fallback segment-level alignment.")
-        return self._align_outputs(transcription_result, None)
+        for t_seg in transcription_segments:
+            start_time = t_seg['start'] 
+            end_time = t_seg['end']     
+            text_content = t_seg['text'].strip()
+            
+            assigned_speaker = constants.NO_SPEAKER_LABEL 
+            if diarization_actually_performed and diar_turns:
+                best_overlap = 0
+                for d_turn in diar_turns:
+                    overlap = max(0, min(end_time, d_turn['end']) - max(start_time, d_turn['start']))
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        assigned_speaker = d_turn['speaker']
+            
+            aligned_segment_dicts.append({
+                'start_time': start_time,
+                'end_time': end_time,
+                'speaker': assigned_speaker,
+                'text': text_content
+            })
 
-    def _perform_auto_merge(self, segments: list) -> list:
-        if not segments: return []
-        merged_segments = [segments[0]]
-        for i in range(1, len(segments)):
-            if segments[i]['speaker'] == merged_segments[-1]['speaker'] and segments[i]['speaker'] != constants.NO_SPEAKER_LABEL:
-                merged_segments[-1]['end'] = segments[i]['end']
-                merged_segments[-1]['text'] += ' ' + segments[i]['text']
+        if not aligned_segment_dicts and transcription_segments:
+            logger.warning("Alignment Note: Transcription processed, but alignment yielded no segment dictionaries.")
+            return [{'start_time': 0, 'end_time': 0, 'speaker': 'NOTE', 'text': 'Alignment yielded no lines'}]
+        return aligned_segment_dicts
+
+    def _perform_auto_merge(self, segment_dicts: list[dict]) -> list[dict]:
+        if not self.output_enable_auto_merge or not segment_dicts:
+            logger.debug(f"Auto-merge skipped. OutputEnableAutoMerge: {self.output_enable_auto_merge}, Segments provided: {bool(segment_dicts)}")
+            return segment_dicts
+
+        merged_segments = []
+        current_merged_segment = None
+        unmergable_speaker_labels = {constants.NO_SPEAKER_LABEL} 
+
+        for seg_dict in segment_dicts:
+            if current_merged_segment is None:
+                current_merged_segment = dict(seg_dict)
             else:
-                merged_segments.append(segments[i])
-        logger.info(f"Auto-merge performed. Original: {len(segments)}, Merged: {len(merged_segments)}")
+                can_merge = (
+                    current_merged_segment['speaker'] == seg_dict['speaker'] and
+                    current_merged_segment['speaker'] not in unmergable_speaker_labels
+                )
+                if can_merge:
+                    current_merged_segment['text'] += " " + seg_dict['text']
+                    current_merged_segment['end_time'] = seg_dict['end_time']
+                else:
+                    merged_segments.append(current_merged_segment)
+                    current_merged_segment = dict(seg_dict)
+        
+        if current_merged_segment is not None:
+            merged_segments.append(current_merged_segment)
+
+        if len(merged_segments) < len(segment_dicts):
+            logger.info(f"Auto-merge performed. Original segments: {len(segment_dicts)}, Merged segments: {len(merged_segments)}")
+        else:
+            logger.info(f"Auto-merge attempted, but no segments were merged. Original: {len(segment_dicts)}, Final: {len(merged_segments)}")
         return merged_segments
 
-    def _format_output(self, segments: list) -> list[str]:
-        lines = []
-        for seg in segments:
-            speaker_str = f"{seg['speaker']}: " if seg['speaker'] != constants.NO_SPEAKER_LABEL else ""
-            ts_str = ""
-            if self.output_include_timestamps:
-                start = self.seconds_to_time_str(seg['start'])
-                end = self.seconds_to_time_str(seg['end']) if self.output_include_end_times and 'end' in seg and seg['end'] is not None else None
-                ts_str = f"[{start} - {end}] " if end else f"[{start}] "
-            lines.append(f"{ts_str}{speaker_str}{seg['text']}")
-        return lines
+    def _format_segment_dictionaries_to_strings(self, segment_dicts: list[dict],
+                                               include_ts_in_format: bool,
+                                               include_end_ts_in_format: bool,
+                                               include_speakers_in_format: bool) -> list[str]:
+        output_lines = []
+        if not segment_dicts:
+            logger.warning("Formatting: No segment dictionaries to format.")
+            return ["Error: No segment data to format."]
 
-    def save_to_txt(self, output_path: str, data: list, is_plain_text: bool):
-        with open(output_path, 'w', encoding='utf-8') as f:
-            if is_plain_text and isinstance(data, str): f.write(data)
+        for seg_dict in segment_dicts:
+            parts = []
+            if include_ts_in_format:
+                ts_start_str = self._format_time(seg_dict['start_time'])
+                if include_end_ts_in_format and seg_dict.get('end_time') is not None:
+                    ts_end_str = self._format_time(seg_dict['end_time'])
+                    parts.append(f"[{ts_start_str} - {ts_end_str}]")
+                else:
+                    parts.append(f"[{ts_start_str}]")
+            
+            if include_speakers_in_format and seg_dict['speaker'] != constants.NO_SPEAKER_LABEL:
+                parts.append(f"{seg_dict['speaker']}:")
+            
+            parts.append(seg_dict['text'])
+            output_lines.append(" ".join(filter(None, parts)))
+        return output_lines
+
+    def process_audio(self, audio_path: str) -> ProcessedAudioResult:
+        overall_start_time = time.time()
+        
+        diarization_will_be_attempted = self.output_enable_diarization and \
+                                        self.diarization_handler and \
+                                        self.diarization_handler.is_model_loaded()
+
+        logger.info(f"AudioProcessor: Processing file: {audio_path}. "
+                    f"Output Diarization: {self.output_enable_diarization}, Diarization Will Be Attempted: {diarization_will_be_attempted}, "
+                    f"Output TS: {self.output_include_timestamps}, Output EndTS: {self.output_include_end_times}, "
+                    f"Output AutoMerge: {self.output_enable_auto_merge}, "
+                    f"Model: {self.transcription_handler.model_name}")
+
+        if not self.transcription_handler.is_model_loaded():
+            logger.error("AudioProcessor: Cannot process audio: transcription model not loaded.")
+            return ProcessedAudioResult(status=constants.STATUS_ERROR, message="Essential transcription model not loaded.")
+
+        diarization_result_obj = None
+        try:
+            if diarization_will_be_attempted:
+                self._report_progress("Diarization starting...", 25)
+                diarization_result_obj = self.diarization_handler.diarize(audio_path)
+                if diarization_result_obj is None:
+                    logger.warning("Diarization process completed but returned no usable result object.")
+            elif self.output_enable_diarization:
+                logger.warning("Diarization was requested, but DiarizationHandler/model is not available. Skipping diarization.")
+                self._report_progress("Diarization skipped (model/token issue).", 25)
             else:
-                for line in data: f.write(line + '\n')
+                logger.info("AudioProcessor: Diarization not requested by user settings.")
+                self._report_progress("Diarization skipped by user setting.", 25)
 
-    def seconds_to_time_str(self, seconds: float) -> str:
-        if not isinstance(seconds, (int, float)) or seconds < 0: seconds = 0.0
-        m, s = divmod(seconds, 60)
-        return f"{int(m):02d}:{int(s):02d}.{int((s-int(s))*1000):03d}"
+            transcription_start_progress = 50 if diarization_will_be_attempted else 25 
+            self._report_progress(f"Transcription ({self.transcription_handler.model_name}) starting...", transcription_start_progress)
+            transcription_output_dict = self.transcription_handler.transcribe(audio_path)
+
+            if not transcription_output_dict or 'segments' not in transcription_output_dict:
+                return ProcessedAudioResult(status=constants.STATUS_ERROR, message="Transcription failed or returned invalid data.")
+            if not transcription_output_dict['segments']:
+                 return ProcessedAudioResult(status=constants.STATUS_EMPTY, message="No speech detected during transcription.")
+
+            is_plain_text_format_requested = not self.output_include_timestamps and not self.output_enable_diarization
+            
+            final_data_for_result: any
+            is_plain_text_result = False
+
+            if is_plain_text_format_requested:
+                logger.info("Plain text output requested. Concatenating segments.")
+                all_texts = [seg.get('text', '').strip() for seg in transcription_output_dict['segments']]
+                final_data_for_result = " ".join(filter(None, all_texts))
+                is_plain_text_result = True
+                self._report_progress("Formatting as plain text...", 90)
+            else:
+                alignment_start_progress = 75 
+                self._report_progress("Aligning outputs...", alignment_start_progress)
+                
+                intermediate_segment_dicts = self._align_outputs(
+                    diarization_result_obj, 
+                    transcription_output_dict, 
+                    diarization_actually_performed=diarization_will_be_attempted
+                )
+                
+                if intermediate_segment_dicts and isinstance(intermediate_segment_dicts[0], dict) and \
+                   (intermediate_segment_dicts[0]['speaker'] == 'ERROR' or intermediate_segment_dicts[0]['speaker'] == 'NOTE'):
+                    status = constants.STATUS_ERROR if intermediate_segment_dicts[0]['speaker'] == 'ERROR' else constants.STATUS_EMPTY
+                    return ProcessedAudioResult(status=status, message=intermediate_segment_dicts[0]['text'])
+                if not intermediate_segment_dicts:
+                     return ProcessedAudioResult(status=constants.STATUS_EMPTY, message="Alignment produced no segments.")
+
+                final_segments_to_process_further = intermediate_segment_dicts
+                if self.output_enable_auto_merge and diarization_will_be_attempted:
+                    logger.info("Auto-merge is enabled and diarization was attempted. Performing merge...")
+                    final_segments_to_process_further = self._perform_auto_merge(intermediate_segment_dicts)
+                else:
+                    logger.info(f"Auto-merge skipped. OutputEnableAutoMerge: {self.output_enable_auto_merge}, DiarizationAttempted: {diarization_will_be_attempted}")
+
+                final_data_for_result = self._format_segment_dictionaries_to_strings(
+                    final_segments_to_process_further,
+                    include_ts_in_format=self.output_include_timestamps,
+                    include_end_ts_in_format=self.output_include_timestamps and self.output_include_end_times,
+                    include_speakers_in_format=diarization_will_be_attempted
+                )
+                is_plain_text_result = False
+                
+                if not final_data_for_result or (isinstance(final_data_for_result, list) and final_data_for_result and "Error:" in final_data_for_result[0]):
+                     return ProcessedAudioResult(status=constants.STATUS_EMPTY, message=final_data_for_result[0] if final_data_for_result else "Formatting produced no lines.")
+
+            logger.info(f"Total audio processing for {audio_path} completed in {time.time() - overall_start_time:.2f}s.")
+            return ProcessedAudioResult(
+                status=constants.STATUS_SUCCESS,
+                data=final_data_for_result,
+                is_plain_text_output=is_plain_text_result
+            )
+
+        except Exception as e:
+            logger.exception(f"AudioProcessor: Unhandled exception during process_audio for {audio_path}")
+            self._report_progress(f"Critical Error: {str(e)[:100]}...", 0)
+            return ProcessedAudioResult(status=constants.STATUS_ERROR, message=f"Critical error: {str(e)}")
+
+
+    def _format_time(self, seconds: float) -> str:
+        if seconds is None or not isinstance(seconds, (int, float)): 
+            seconds = 0.0
+        seconds = max(0, seconds)
+        sec_int = int(seconds)
+        milliseconds = int((seconds - sec_int) * 1000)
+        minutes = sec_int // 60
+        sec_rem = sec_int % 60
+        return f"{minutes:02d}:{sec_rem:02d}.{milliseconds:03d}"
+
+    @staticmethod
+    def save_to_txt(output_path: str, data_to_save: any, is_plain_text: bool):
+        logger.info(f"Saving processed output to: {output_path}. Plain text: {is_plain_text}")
+        try:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                if is_plain_text:
+                    if isinstance(data_to_save, str):
+                        f.write(data_to_save)
+                    else:
+                        logger.error("save_to_txt: Expected a string for plain text, got %s", type(data_to_save))
+                        f.write(str(data_to_save) if data_to_save is not None else "Error: Invalid plain text data.")
+                elif isinstance(data_to_save, list):
+                    for segment_line in data_to_save:
+                        f.write(segment_line + '\n')
+                elif data_to_save is None:
+                    f.write("No transcription results or error during processing.\n")
+                else:
+                    logger.error("save_to_txt: Unexpected data type to save: %s", type(data_to_save))
+                    f.write(str(data_to_save))
+
+            logger.info("Output saved successfully.")
+        except IOError as e:
+            logger.exception(f"IOError saving to {output_path}.")
+            raise
