@@ -4,10 +4,16 @@ import numpy as np
 import pyaudio
 import soundfile as sf
 from PySide6.QtCore import QObject, Signal, QThread, Slot
+# --- NEW: Import for resampling ---
+from scipy import signal
 
 logger = logging.getLogger(__name__)
 
+# Target a standard, widely supported sample rate for playback
+TARGET_PLAYBACK_SR = 44100
+
 class _Worker(QObject):
+    # ... (Worker class remains unchanged)
     position_changed = Signal(float)
     finished = Signal()
 
@@ -47,6 +53,7 @@ class _Worker(QObject):
         self.is_running = False
 
 class AudioPlayer(QObject):
+    # ... (Signals and __init__ are the same)
     progress = Signal(float)
     finished = Signal()
     is_ready = Signal(bool)
@@ -68,23 +75,66 @@ class AudioPlayer(QObject):
         self.sample_width_bytes = 0
         self.is_playing = False
 
+
     def load_file(self, file_path):
+        """--- MODIFIED: This method now resamples audio to a standard rate. ---"""
         try:
             self.stop_and_reset()
-            self._audio_data_numpy, self._sample_rate = sf.read(file_path, dtype='int16')
-            self.num_channels = self._audio_data_numpy.shape[1] if self._audio_data_numpy.ndim > 1 else 1
-            audio_data_mono = self._audio_data_numpy.mean(axis=1).astype(np.int16) if self.num_channels > 1 else self._audio_data_numpy
+            
+            # 1. Load the original audio data and its sample rate
+            original_data, original_sr = sf.read(file_path, dtype='float32', always_2d=True)
+
+            # 2. Resample if necessary
+            if original_sr != TARGET_PLAYBACK_SR:
+                logger.info(f"Resampling audio from {original_sr}Hz to {TARGET_PLAYBACK_SR}Hz...")
+                num_frames = int(len(original_data) * TARGET_PLAYBACK_SR / original_sr)
+                # Resample each channel
+                resampled_data = np.zeros((num_frames, original_data.shape[1]), dtype=np.float32)
+                for i in range(original_data.shape[1]):
+                    resampled_data[:, i] = signal.resample(original_data[:, i], num_frames)
+                
+                # Update the variables to use the new, resampled data
+                playback_data = resampled_data
+                self._sample_rate = TARGET_PLAYBACK_SR
+            else:
+                # No resampling needed
+                playback_data = original_data
+                self._sample_rate = original_sr
+                
+            # 3. Convert final data to int16 for playback and continue as before
+            self._audio_data_numpy = (playback_data * 32767).astype(np.int16)
+
+            self.num_channels = self._audio_data_numpy.shape[1]
+            audio_data_mono = self._audio_data_numpy.mean(axis=1).astype(np.int16) if self.num_channels > 1 else self._audio_data_numpy.flatten()
             self._duration = len(self._audio_data_numpy) / float(self._sample_rate)
             self._normalized_waveform = audio_data_mono / 32768.0
             self.sample_width_bytes = self._audio_data_numpy.dtype.itemsize
-            self.stream = self.pyaudio_instance.open(format=self.pyaudio_instance.get_format_from_width(self.sample_width_bytes), channels=self.num_channels, rate=self._sample_rate, output=True)
+
+            # 4. Open the stream with the now-guaranteed standard sample rate
+            self.stream = self.pyaudio_instance.open(format=self.pyaudio_instance.get_format_from_width(self.sample_width_bytes), 
+                                                     channels=self.num_channels, 
+                                                     rate=self._sample_rate, 
+                                                     output=True)
+                                                     
             self.is_ready.emit(True)
-            logger.info(f"Successfully loaded audio file: {file_path}, Duration: {self._duration:.2f}s")
+            logger.info(f"Successfully loaded and prepared audio file: {file_path}, Duration: {self._duration:.2f}s")
             return True
         except Exception as e:
-            logger.exception("Error loading audio file."); self.is_ready.emit(False)
-            self.error.emit(str(e))
+            logger.exception("Error loading audio file.")
+            self.error.emit(f"Failed to load/resample audio: {e}")
+            self.is_ready.emit(False)
             return False
+
+    def stop_and_reset(self):
+        self._stop_playback_thread()
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        self._current_time = 0.0
+        self.progress.emit(0.0)
+        self._set_is_playing(False)
+
+    # --- All other methods (play, pause, seek, etc.) remain unchanged ---
 
     def play(self):
         if self.is_playing or not self.stream: return
@@ -104,23 +154,12 @@ class AudioPlayer(QObject):
         self._stop_playback_thread()
         self._set_is_playing(False)
 
-    def stop_and_reset(self):
-        self._stop_playback_thread()
-        self._current_time = 0.0
-        self.progress.emit(0.0)
-        self._set_is_playing(False)
-
     def set_position(self, seconds):
-        # --- THE DEFINITIVE SEEK/DRAG FIX ---
         was_playing = self.is_playing
         self._stop_playback_thread()
-        
         self._current_time = max(0, min(seconds, self._duration))
         self.progress.emit(self._current_time)
-        
-        # If the player was playing before, automatically resume playback
-        if was_playing:
-            self.play()
+        if was_playing: self.play()
 
     def seek(self, offset_seconds):
         self.set_position(self._current_time + offset_seconds)
@@ -133,8 +172,7 @@ class AudioPlayer(QObject):
     def _stop_playback_thread(self):
         if self.worker: self.worker.stop()
         if self.thread:
-            self.thread.quit()
-            self.thread.wait()
+            self.thread.quit(); self.thread.wait()
         self.thread = None
         self.worker = None
 

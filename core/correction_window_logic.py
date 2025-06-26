@@ -288,9 +288,78 @@ class SegmentManager:
         segment = self.get_segment_by_id(segment_id)
         if segment:
             segment["speaker_raw"] = new_speaker_raw
-            if new_speaker_raw != constants.NO_SPEAKER_LABEL:
-                self.unique_speaker_labels.add(new_speaker_raw) 
+            if new_speaker_raw and new_speaker_raw != constants.NO_SPEAKER_LABEL:
+                self.unique_speaker_labels.add(new_speaker_raw)
             logger.debug(f"Segment {segment_id} speaker updated to {new_speaker_raw}")
+    
+    # --- NEW METHODS ---
+
+    def merge_segment_upwards(self, segment_id: str) -> bool:
+        """Merges the specified segment into the one immediately preceding it."""
+        index = self.get_segment_index(segment_id)
+        if index <= 0:
+            logger.warning(f"Cannot merge upwards: Segment {segment_id} is the first or not found.")
+            return False
+
+        current_segment = self.segments[index]
+        previous_segment = self.segments[index - 1]
+        
+        # Combine text
+        sep = " " if previous_segment["text"] else ""
+        previous_segment["text"] += sep + current_segment["text"]
+
+        # Update end time of the previous segment to encompass the merged one
+        if current_segment.get("has_explicit_end_time") and current_segment["end_time"] is not None:
+            previous_segment["end_time"] = current_segment["end_time"]
+            previous_segment["has_explicit_end_time"] = True
+        else:
+            # If the merged segment didn't have an explicit end time, the combined segment won't either
+            previous_segment["end_time"] = None
+            previous_segment["has_explicit_end_time"] = False
+        
+        # Remove the now-merged segment
+        self.segments.pop(index)
+        logger.info(f"Merged segment {segment_id} upwards into {previous_segment['id']}.")
+        return True
+
+    def merge_multiple_segments(self, segment_ids: list[str]) -> str | None:
+        """
+        Merges multiple segments into the one that appears first in the document.
+        Returns the ID of the target segment, or None on failure.
+        """
+        if len(segment_ids) < 2:
+            return None
+
+        # Create a map of ID to index to sort the incoming IDs
+        id_to_index = {seg["id"]: i for i, seg in enumerate(self.segments)}
+        sorted_ids = sorted(segment_ids, key=lambda seg_id: id_to_index.get(seg_id, float('inf')))
+        
+        target_segment_id = sorted_ids[0]
+        target_segment = self.get_segment_by_id(target_segment_id)
+        if not target_segment:
+            return None
+
+        ids_to_remove = set()
+        for i in range(1, len(sorted_ids)):
+            segment_to_merge_id = sorted_ids[i]
+            segment_to_merge = self.get_segment_by_id(segment_to_merge_id)
+            if not segment_to_merge: continue
+            
+            # Append text
+            sep = " " if target_segment["text"] else ""
+            target_segment["text"] += sep + segment_to_merge["text"]
+            
+            # Update end time
+            if segment_to_merge.get("has_explicit_end_time") and segment_to_merge.get("end_time") is not None:
+                target_segment["end_time"] = segment_to_merge["end_time"]
+                target_segment["has_explicit_end_time"] = True
+
+            ids_to_remove.add(segment_to_merge_id)
+
+        # Remove merged segments from the main list
+        self.segments = [seg for seg in self.segments if seg["id"] not in ids_to_remove]
+        logger.info(f"Merged {len(ids_to_remove)} segments into {target_segment_id}.")
+        return target_segment_id
 
     def remove_segment(self, segment_id_to_remove: str) -> bool:
         original_len = len(self.segments)

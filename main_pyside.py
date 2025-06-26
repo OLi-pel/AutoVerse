@@ -106,7 +106,12 @@ class MainApplication:
         self.window.segment_btn = self.window.findChild(QPushButton, "segment_btn")
         self.window.save_timestamp_btn = self.window.findChild(QPushButton, "save_timestamp_btn")
         self.window.change_highlight_color_btn = self.window.findChild(QPushButton, "change_highlight_color_btn")
-    
+
+        self.window.delete_segment_btn = self.window.findChild(QPushButton, "delete_segment_btn")
+        self.window.merge_segments_btn = self.window.findChild(QPushButton, "merge_segments_btn")
+        self.window.text_font_combo = self.window.findChild(QComboBox, "text_font")
+        self.window.font_size_combo = self.window.findChild(QComboBox, "Police_size")
+
     # ... All other methods from _setup_fonts onwards are unchanged.
     def _setup_fonts(self):
         font_id = QFontDatabase.font("Monaco", "Roman", 12)
@@ -116,8 +121,10 @@ class MainApplication:
 
     def _setup_icons(self):
         """Manually loads icons from a local folder, ignoring system themes."""
-        if getattr(sys, 'frozen', False): base_dir = sys._MEIPASS
-        else: base_dir = os.path.dirname(__file__)
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(__file__)
         
         icon_dir = os.path.join(base_dir, 'assets', 'icons')
 
@@ -139,17 +146,22 @@ class MainApplication:
             self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png",
             self.window.change_highlight_color_btn: "palette.png",
             self.window.edit_speaker_btn: "user-pen.png",
-            self.window.correction_text_edit_btn: "pencil.png", # Set initial icon
-            self.window.correction_timestamp_edit_btn: "pending.png",
+            self.window.correction_text_edit_btn: "pencil.png", 
+            # --- MODIFIED: The default timestamp icon ---
+            self.window.correction_timestamp_edit_btn: "stopwatch.png", # Changed from 'pending.png' for clarity
             self.window.segment_btn: "multiple.png",
             self.window.save_timestamp_btn: "disk.png",
+            self.window.merge_segments_btn: "merge.png",
+            self.window.delete_segment_btn: "trash.png",
         }
-
+        # ... (icon setting loop is the same)
         for widget, filename in icon_map.items():
             if widget:
                 icon_path = os.path.join(icon_dir, filename)
-                if os.path.exists(icon_path): widget.setIcon(QIcon(icon_path))
-                else: print(f"Icon not found: {icon_path}")
+                if os.path.exists(icon_path):
+                    widget.setIcon(QIcon(icon_path))
+                else:
+                    print(f"Icon not found: {icon_path}")
         
         # Pre-load icons for state changes
         play_icon_path = os.path.join(icon_dir, "play.png")
@@ -157,11 +169,16 @@ class MainApplication:
         self.window.icon_play = QIcon(play_icon_path) if os.path.exists(play_icon_path) else QIcon()
         self.window.icon_pause = QIcon(pause_icon_path) if os.path.exists(pause_icon_path) else QIcon()
         
-        # --- NEW: Pre-load icons for edit mode button ---
         edit_icon_path = os.path.join(icon_dir, "pencil.png")
         save_edit_icon_path = os.path.join(icon_dir, "sign-out-alt.png")
         self.window.icon_edit_text = QIcon(edit_icon_path) if os.path.exists(edit_icon_path) else QIcon()
         self.window.icon_save_edit = QIcon(save_edit_icon_path) if os.path.exists(save_edit_icon_path) else QIcon()
+
+        # --- NEW: Pre-load the timestamp editing icon ---
+        edit_ts_icon_path = os.path.join(icon_dir, "stopwatch.png")
+        self.window.icon_edit_timestamp = QIcon(edit_ts_icon_path) if os.path.exists(edit_ts_icon_path) else QIcon()
+        # The cancel icon will be the same as the save/exit text edit icon
+        self.window.icon_cancel_edit = self.window.icon_save_edit 
     
     def connect_signals(self):
         self.window.browse_button.clicked.connect(self.select_audio_files)
@@ -188,6 +205,8 @@ class MainApplication:
                 "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
 
     def load_initial_settings(self):
+        if self.window.save_timestamp_btn:
+            self.window.save_timestamp_btn.setVisible(False)
         self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
         self.window.model_dropdown.setCurrentText("large (recommended)")
         if self.window.huggingface_token_frame: self.window.huggingface_token_frame.hide()
