@@ -1,18 +1,18 @@
 # ui/correction_view_logic.py
 import logging, sys, os
-from PySide6.QtWidgets import (QFileDialog, QMessageBox, QVBoxLayout, QColorDialog, QDialog, 
-                               QDialogButtonBox, QLabel, QLineEdit, QGridLayout, QScrollArea, 
+from PySide6.QtWidgets import (QFileDialog, QMessageBox, QVBoxLayout, QColorDialog, QDialog,
+                               QDialogButtonBox, QLabel, QLineEdit, QGridLayout, QScrollArea,
                                QWidget, QComboBox)
 from PySide6.QtCore import QObject, Slot, Qt
 from PySide6.QtGui import QTextCursor, QTextCharFormat, QColor
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
-if project_root not in sys.path: 
+if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from core.correction_window_logic import SegmentManager
-from core.audio_player import AudioPlayer
+from core.audio_player import AudioPlayer # This is our new, robust audio player
 from utils import constants
 from ui.timeline_frame import WaveformFrame
 from ui.selectable_text_edit import SelectableTextEdit
@@ -24,7 +24,7 @@ class CorrectionViewLogic(QObject):
         super().__init__()
         self.main_window = main_window
         self.segment_manager = SegmentManager()
-        self.audio_player = AudioPlayer()
+        self.audio_player = AudioPlayer() # Create initial instance
         self.selected_segment_id = None
         self.current_highlighted_segment_id = None
         self.editing_segment_id = None
@@ -51,8 +51,14 @@ class CorrectionViewLogic(QObject):
         self.connect_signals()
         self.set_controls_enabled(False)
 
+    def connect_audio_player_signals(self):
+        """Helper method to connect signals from the current audio_player instance."""
+        self.audio_player.progress.connect(self.update_audio_progress)
+        self.audio_player.finished.connect(self.on_audio_finished)
+        self.audio_player.error.connect(lambda msg: QMessageBox.critical(self.main_window, "Audio Player Error", msg))
+        self.audio_player.state_changed.connect(self.update_play_button_state)
+
     def connect_signals(self):
-        # ... (connections remain the same as the previous correct version)
         textarea = self.main_window.correction_text_area
         if textarea:
             textarea.segment_clicked.connect(self.on_segment_clicked)
@@ -64,27 +70,78 @@ class CorrectionViewLogic(QObject):
         if self.main_window.edit_speaker_btn: self.main_window.edit_speaker_btn.clicked.connect(self.on_edit_speaker_clicked)
         if self.main_window.correction_timestamp_edit_btn: self.main_window.correction_timestamp_edit_btn.clicked.connect(self.on_timestamp_edit_button_clicked)
         if self.main_window.save_timestamp_btn: self.main_window.save_timestamp_btn.clicked.connect(self.on_save_timestamp_clicked)
-        if self.main_window.merge_segments_btn:
-            self.main_window.merge_segments_btn.clicked.connect(self.on_merge_button_clicked)
-            
+        if self.main_window.merge_segments_btn: self.main_window.merge_segments_btn.clicked.connect(self.on_merge_button_clicked)
+
         self.main_window.correction_browse_transcription_btn.clicked.connect(self.browse_transcription_file)
         self.main_window.correction_browse_audio_btn.clicked.connect(self.browse_audio_file)
         self.main_window.correction_load_files_btn.clicked.connect(self.load_files)
         self.main_window.correction_assign_speakers_btn.clicked.connect(self.open_speaker_assignment_dialog)
         self.main_window.correction_save_changes_btn.clicked.connect(self.save_changes)
         if self.main_window.change_highlight_color_btn: self.main_window.change_highlight_color_btn.clicked.connect(self.open_change_highlight_color_dialog)
-        
-        # --- MODIFIED: Lambdas removed in favor of a state-aware method ---
+
+        self.main_window.correction_play_pause_btn.clicked.connect(self.toggle_play_pause)
         self.main_window.correction_rewind_btn.clicked.connect(lambda: self.on_seek_button_clicked(is_forward=False))
         self.main_window.correction_forward_btn.clicked.connect(lambda: self.on_seek_button_clicked(is_forward=True))
-        
+
         self.timeline.seek_requested.connect(self.seek_to_percentage)
         self.timeline.bar_dragged.connect(self.on_timestamp_bar_dragged)
-        self.audio_player.progress.connect(self.update_audio_progress)
-        self.audio_player.finished.connect(self.on_audio_finished)
-        self.audio_player.error.connect(lambda msg: QMessageBox.critical(self.main_window, "Audio Player Error", msg))
-        self.audio_player.state_changed.connect(self.update_play_button_state)
         
+        # Initial connection
+        self.connect_audio_player_signals()
+
+    # --- Start of new/changed methods ---
+    @Slot()
+    def toggle_play_pause(self):
+        if not self.audio_player or not self.segment_manager.segments:
+            QMessageBox.information(self.main_window, "No Audio", "Please load an audio file first.")
+            return
+        if self.audio_player.is_playing:
+            self.audio_player.pause()
+        else:
+            self.audio_player.play()
+
+    @Slot()
+    def load_files(self): self._safe_action(self._load_files_action)
+
+    def _load_files_action(self):
+        txt = self.main_window.correction_transcription_entry.text()
+        audio = self.main_window.correction_audio_entry.text()
+        if not txt or not audio:
+            QMessageBox.warning(self.main_window, "Error", "Please select both transcription and audio files.")
+            return
+
+        try:
+            self.select_segment(None)
+            
+            # Destroy old player and create a new one to prevent stale state issues
+            if self.audio_player:
+                self.audio_player.destroy()
+            self.audio_player = AudioPlayer()
+            self.connect_audio_player_signals()
+
+            with open(txt, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            self.segment_manager.parse_transcription_lines(lines)
+            self.render_segments_to_textarea()
+
+            if not self.audio_player.load_file(audio):
+                raise IOError("Audio player failed to load or resample the file. Check logs for details.")
+
+            self.timeline.set_waveform_data(self.audio_player.get_normalized_waveform())
+            self.timeline.set_duration(self.audio_player.get_duration())
+            self.update_audio_progress(0)
+            self.set_controls_enabled(True)
+            self.update_play_button_state(playing=False)
+        except Exception as e:
+            logger.exception("Load error.")
+            self.set_controls_enabled(False)
+            QMessageBox.critical(self.main_window, "Load Error", str(e))
+    # --- End of new/changed methods ---
+
+
+    # ... ALL OTHER METHODS FROM THIS POINT FORWARD REMAIN EXACTLY THE SAME AS YOUR ORIGINAL WORKING VERSION ...
+    # ... (e.g., enter_timestamp_edit_mode, exit_timestamp_edit_mode, etc.) ...
+    
     def enter_timestamp_edit_mode(self, segment_id):
         self.exit_all_edit_modes()
         segment = self.segment_manager.get_segment_by_id(segment_id)
@@ -130,42 +187,34 @@ class CorrectionViewLogic(QObject):
         self.update_edit_buttons_state()
         
     def on_seek_button_clicked(self, is_forward: bool):
-        """--- NEW: State-aware seek method ---"""
         if self.timestamp_editing_segment_id:
-            # Precision seek mode
             offset = 1.0 if is_forward else -1.0
         else:
-            # Standard seek mode
             offset = 5.0 if is_forward else -5.0
         
         self.seek_by_offset(offset)
 
     @Slot(int, Qt.KeyboardModifiers)
     def on_segment_clicked(self, block_number, modifiers):
-        """Handles single and multi-selection clicks."""
         is_click_on_valid_segment = 0 <= block_number < len(self.segment_manager.segments)
         
         if self.editing_segment_id or self.timestamp_editing_segment_id:
-             # If editing anything, a click outside exits the mode and selects normally.
             self.exit_all_edit_modes()
             if is_click_on_valid_segment: self.select_segment_by_block(block_number)
             return
 
         if modifiers == Qt.KeyboardModifier.ShiftModifier and is_click_on_valid_segment:
-            # --- Multi-selection logic ---
             segment_id = self.segment_manager.segments[block_number]['id']
-            # Clear single selection if we are starting a multi-selection
             if self.selected_segment_id:
                 self._clear_selection()
                 
             if segment_id in self.multi_selection_ids:
                 self.multi_selection_ids.remove(segment_id)
-                self._apply_format(segment_id, self.normal_format) # Deselect
+                self._apply_format(segment_id, self.normal_format)
             else:
                 self.multi_selection_ids.append(segment_id)
-                self._apply_format(segment_id, self.multi_selection_format) # Select
+                self._apply_format(segment_id, self.multi_selection_format)
         else:
-            # --- Standard single selection logic ---
             self._clear_all_selections()
             if is_click_on_valid_segment:
                 self.select_segment_by_block(block_number)
@@ -184,15 +233,13 @@ class CorrectionViewLogic(QObject):
         
         num_multi_selected = len(self.multi_selection_ids)
         if num_multi_selected > 1:
-            # Multi-merge case
             new_target_id = self.segment_manager.merge_multiple_segments(self.multi_selection_ids)
             self._clear_all_selections()
             self.render_segments_to_textarea()
             if new_target_id:
-                self.select_segment(new_target_id) # Select the segment that received the text
+                self.select_segment(new_target_id)
                 
         elif self.selected_segment_id and num_multi_selected == 0:
-            # Single-merge (upwards) case
             current_id = self.selected_segment_id
             current_index = self.segment_manager.get_segment_index(current_id)
             if current_index > 0:
@@ -200,21 +247,17 @@ class CorrectionViewLogic(QObject):
                 if self.segment_manager.merge_segment_upwards(current_id):
                     self._clear_all_selections()
                     self.render_segments_to_textarea()
-                    self.select_segment(previous_id) # Select the segment that received the text
+                    self.select_segment(previous_id)
 
         self.update_edit_buttons_state()
     
     @Slot()
     def on_timestamp_edit_button_clicked(self):
-        # --- MODIFIED: This button now acts as a toggle/cancel ---
         if self.timestamp_editing_segment_id:
-            # If we are already in TS edit mode, this button acts as a cancel.
             self.exit_timestamp_edit_mode(save=False)
         elif self.selected_segment_id:
-            # If not in mode, it enters mode for the selected segment.
             self.enter_timestamp_edit_mode(self.selected_segment_id)
 
-    # ... all other methods from on_save_timestamp_clicked onwards remain the same as the previous correct version ...
     def _apply_format(self, segment_id, text_format, clear_first=False):
         segment = self.segment_manager.get_segment_by_id(segment_id)
         if segment and 'doc_positions' in segment:
@@ -229,7 +272,9 @@ class CorrectionViewLogic(QObject):
         self.selection_format.setBackground(color.darker(150))
         self.multi_selection_format.setBackground(color.lighter(130))
         
-    def _apply_selection(self, segment_id): self._apply_format(segment_id, self.selection_format)
+    def _apply_selection(self, segment_id): 
+        self._apply_format(segment_id, self.selection_format)
+
     def _apply_highlight(self, segment_id):
         if segment_id != self.selected_segment_id and not self.editing_segment_id:
             self._apply_format(segment_id, self.highlight_format)
@@ -329,15 +374,13 @@ class CorrectionViewLogic(QObject):
         merge_button = self.main_window.merge_segments_btn
         if merge_button:
             can_merge = False
-            # Multi-select merge is always possible if > 1 are selected
             if len(self.multi_selection_ids) > 1:
                 can_merge = True
-            # Single-select merge is possible if one is selected and it's not the first one
             elif self.selected_segment_id and self.segment_manager.get_segment_index(self.selected_segment_id) > 0:
                 can_merge = True
             
             merge_button.setEnabled(can_merge)
-            
+
     def _safe_action(self, action_func, *args): self.exit_all_edit_modes(); action_func(*args)
     @Slot()
     def save_changes(self): self._safe_action(self._save_changes_action)
@@ -360,19 +403,7 @@ class CorrectionViewLogic(QObject):
     def _browse_audio_file_action(self):
         path, _ = QFileDialog.getOpenFileName(self.main_window, "Select Audio", "", "Audio (*.wav *.mp3 *.aac *.flac *.m4a)");
         if path: self.main_window.correction_audio_entry.setText(path)
-    @Slot()
-    def load_files(self): self._safe_action(self._load_files_action)
-    def _load_files_action(self):
-        txt, audio = self.main_window.correction_transcription_entry.text(), self.main_window.correction_audio_entry.text()
-        if not txt or not audio: QMessageBox.warning(self.main_window, "Error", "Please select both transcription and audio files."); return
-        try:
-            self.select_segment(None); self.audio_player.stop_and_reset();
-            with open(txt, 'r', encoding='utf-8') as f: lines = f.readlines()
-            self.segment_manager.parse_transcription_lines(lines); self.render_segments_to_textarea()
-            if not self.audio_player.load_file(audio): raise IOError("Audio player failed to load the file.")
-            self.timeline.set_waveform_data(self.audio_player.get_normalized_waveform()); self.timeline.set_duration(self.audio_player.get_duration())
-            self.update_audio_progress(0); self.set_controls_enabled(True); self.update_play_button_state(playing=False)
-        except Exception as e: logger.exception("Load error."); self.set_controls_enabled(False); QMessageBox.critical(self.main_window, "Load Error", str(e))
+    
     @Slot()
     def open_speaker_assignment_dialog(self): self._safe_action(self._open_speaker_assignment_dialog_action)
     def _open_speaker_assignment_dialog_action(self):
@@ -406,10 +437,7 @@ class CorrectionViewLogic(QObject):
     def update_play_button_state(self, playing):
         if playing: self.main_window.correction_play_pause_btn.setText("Pause"); self.main_window.correction_play_pause_btn.setIcon(self.main_window.icon_pause)
         else: self.main_window.correction_play_pause_btn.setText("Play"); self.main_window.correction_play_pause_btn.setIcon(self.main_window.icon_play)
-    @Slot()
-    def toggle_play_pause(self):
-        if self.audio_player.is_playing: self.audio_player.pause()
-        else: self.audio_player.play()
+    
     @Slot()
     def on_audio_finished(self): self._clear_highlight(); self.current_highlighted_segment_id = None
     @Slot(float)

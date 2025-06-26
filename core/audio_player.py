@@ -1,198 +1,209 @@
 # core/audio_player.py
 import logging
+import time
 import numpy as np
 import pyaudio
 import soundfile as sf
-from PySide6.QtCore import QObject, Signal, QThread, Slot
-# --- NEW: Import for resampling ---
 from scipy import signal
+from PySide6.QtCore import QObject, Signal, Slot, QThread, QCoreApplication
 
 logger = logging.getLogger(__name__)
-
-# Target a standard, widely supported sample rate for playback
 TARGET_PLAYBACK_SR = 44100
 
-class _Worker(QObject):
-    # ... (Worker class remains unchanged)
+class _PlayerWorker(QObject):
     position_changed = Signal(float)
     finished = Signal()
+    state_changed = Signal(bool)
+    error = Signal(str)
 
-    def __init__(self, stream, data_bytes, sample_rate, start_byte, sample_width_bytes, num_channels):
+    def __init__(self):
         super().__init__()
-        self.stream = stream
-        self._data_bytes = data_bytes
+        self.pyaudio_instance = None
+        self.stream = None
+        self._audio_data = None
+        self._sample_rate = 0
+        self._num_channels = 0
+        self._sample_width_bytes = 0
+        self._current_frame = 0
+        self._total_frames = 0
+        self._chunk_size_frames = 64  # Responsive chunk size
+        self._is_paused = False
+        self._stop_requested = False
+
+    @Slot()
+    def initialize_pyaudio(self):
+        if self.pyaudio_instance is None:
+            self.pyaudio_instance = pyaudio.PyAudio()
+
+    @Slot(np.ndarray, int)
+    def load_data(self, audio_data, sample_rate):
+        self._stop()
+        self._audio_data = audio_data
         self._sample_rate = sample_rate
-        self._position_bytes = start_byte
-        self._sample_width_bytes = sample_width_bytes
-        self._num_channels = num_channels
-        self._chunk_size_bytes = 1024 * self._sample_width_bytes * self._num_channels
-        self.is_running = True
+        self._num_channels = self._audio_data.shape[1]
+        self._sample_width_bytes = self._audio_data.dtype.itemsize
+        self._total_frames = len(self._audio_data)
+        self.set_position(0.0)
 
-    def run(self):
-        bytes_per_frame = self._sample_width_bytes * self._num_channels
-        if bytes_per_frame == 0:
-            self.finished.emit()
+    @Slot()
+    def play(self):
+        if self.stream and self.stream.is_active():
+            if self._is_paused:
+                self._is_paused = False
+                self.state_changed.emit(True)
             return
-        data_len_bytes = len(self._data_bytes)
-        while self.is_running and self._position_bytes < data_len_bytes:
-            try:
-                chunk_end = self._position_bytes + self._chunk_size_bytes
-                data_chunk = self._data_bytes[self._position_bytes:chunk_end]
-                if not data_chunk or not self.stream.is_active(): break
-                self.stream.write(data_chunk)
-                self._position_bytes += len(data_chunk)
-                current_frame = self._position_bytes / bytes_per_frame
-                current_time = current_frame / self._sample_rate
-                self.position_changed.emit(current_time)
-            except (IOError, AttributeError) as e:
-                logger.error(f"PyAudio stream write error in worker: {e}")
-                break
-        self.finished.emit()
 
-    def stop(self):
-        self.is_running = False
+        if self._current_frame >= self._total_frames:
+            self._current_frame = 0
+
+        self._stop_requested = False
+        self.state_changed.emit(True)
+        self._playback_loop()
+
+    @Slot()
+    def pause(self):
+        self._is_paused = True
+        self.state_changed.emit(False)
+
+    def _stop(self):
+        self._stop_requested = True
+        self._is_paused = False
+
+    @Slot(float)
+    def set_position(self, seconds):
+        if self._sample_rate > 0:
+            self._current_frame = int(np.clip(seconds * self._sample_rate, 0, self._total_frames))
+            self.position_changed.emit(self._current_frame / self._sample_rate)
+        else:
+            self.position_changed.emit(0.0)
+
+    def _playback_loop(self):
+        if not self.pyaudio_instance: self.initialize_pyaudio()
+            
+        try:
+            self.stream = self.pyaudio_instance.open(
+                format=pyaudio.paInt16,
+                channels=self._num_channels,
+                rate=self._sample_rate,
+                output=True,
+                frames_per_buffer=self._chunk_size_frames
+            )
+        except Exception as e:
+            logger.error(f"Failed to open PyAudio stream: {e}")
+            self.error.emit(str(e))
+            self.state_changed.emit(False)
+            return
+
+        while self._current_frame < self._total_frames and not self._stop_requested:
+            if self._is_paused:
+                time.sleep(0.01)
+                QCoreApplication.processEvents()
+                continue
+
+            remaining_frames = self._total_frames - self._current_frame
+            frames_to_write = min(self._chunk_size_frames, remaining_frames)
+            chunk_data = self._audio_data[self._current_frame:self._current_frame + frames_to_write].tobytes()
+            self.stream.write(chunk_data)
+            self._current_frame += frames_to_write
+            self.position_changed.emit(self._current_frame / self._sample_rate)
+            QCoreApplication.processEvents()
+
+        self.stream.stop_stream()
+        self.stream.close()
+        self.stream = None
+        self._stop_requested = False
+        if self._current_frame >= self._total_frames:
+            self.finished.emit()
+        self.state_changed.emit(False)
+
+    def cleanup(self):
+        self._stop()
+        if self.pyaudio_instance:
+            self.pyaudio_instance.terminate()
 
 class AudioPlayer(QObject):
-    # ... (Signals and __init__ are the same)
     progress = Signal(float)
     finished = Signal()
     is_ready = Signal(bool)
     error = Signal(str)
     state_changed = Signal(bool)
 
+    _load_requested = Signal(np.ndarray, int)
+    _play_requested = Signal()
+    _pause_requested = Signal()
+    _position_set_requested = Signal(float)
+
     def __init__(self):
         super().__init__()
-        self.pyaudio_instance = pyaudio.PyAudio()
-        self.stream = None
-        self.thread = None
-        self.worker = None
-        self._audio_data_numpy = None
-        self._normalized_waveform = None
-        self._sample_rate = 0
         self._duration = 0.0
         self._current_time = 0.0
-        self.num_channels = 0
-        self.sample_width_bytes = 0
+        self._normalized_waveform = []
         self.is_playing = False
+        self.thread = QThread()
+        self.worker = _PlayerWorker()
 
+        self.thread.started.connect(self.worker.initialize_pyaudio)
+        self._load_requested.connect(self.worker.load_data)
+        self._play_requested.connect(self.worker.play)
+        self._pause_requested.connect(self.worker.pause)
+        self._position_set_requested.connect(self.worker.set_position)
+        self.worker.position_changed.connect(self._on_progress)
+        self.worker.finished.connect(self._on_finished)
+        self.worker.state_changed.connect(self._on_state_changed)
+        self.worker.error.connect(self.error)
+
+        self.worker.moveToThread(self.thread)
+        self.thread.start()
 
     def load_file(self, file_path):
-        """--- MODIFIED: This method now resamples audio to a standard rate. ---"""
         try:
-            self.stop_and_reset()
-            
-            # 1. Load the original audio data and its sample rate
+            self.is_ready.emit(False)
             original_data, original_sr = sf.read(file_path, dtype='float32', always_2d=True)
-
-            # 2. Resample if necessary
             if original_sr != TARGET_PLAYBACK_SR:
-                logger.info(f"Resampling audio from {original_sr}Hz to {TARGET_PLAYBACK_SR}Hz...")
                 num_frames = int(len(original_data) * TARGET_PLAYBACK_SR / original_sr)
-                # Resample each channel
-                resampled_data = np.zeros((num_frames, original_data.shape[1]), dtype=np.float32)
-                for i in range(original_data.shape[1]):
-                    resampled_data[:, i] = signal.resample(original_data[:, i], num_frames)
-                
-                # Update the variables to use the new, resampled data
-                playback_data = resampled_data
+                audio_data = (signal.resample(original_data, num_frames) * 32767).astype(np.int16)
                 self._sample_rate = TARGET_PLAYBACK_SR
             else:
-                # No resampling needed
-                playback_data = original_data
+                audio_data = (original_data * 32767).astype(np.int16)
                 self._sample_rate = original_sr
-                
-            # 3. Convert final data to int16 for playback and continue as before
-            self._audio_data_numpy = (playback_data * 32767).astype(np.int16)
-
-            self.num_channels = self._audio_data_numpy.shape[1]
-            audio_data_mono = self._audio_data_numpy.mean(axis=1).astype(np.int16) if self.num_channels > 1 else self._audio_data_numpy.flatten()
-            self._duration = len(self._audio_data_numpy) / float(self._sample_rate)
-            self._normalized_waveform = audio_data_mono / 32768.0
-            self.sample_width_bytes = self._audio_data_numpy.dtype.itemsize
-
-            # 4. Open the stream with the now-guaranteed standard sample rate
-            self.stream = self.pyaudio_instance.open(format=self.pyaudio_instance.get_format_from_width(self.sample_width_bytes), 
-                                                     channels=self.num_channels, 
-                                                     rate=self._sample_rate, 
-                                                     output=True)
-                                                     
+            self._duration = len(audio_data) / float(self._sample_rate)
+            mono_data = audio_data.mean(axis=1) if audio_data.shape[1] > 1 else audio_data.flatten()
+            self._normalized_waveform = (mono_data / 32768.0).astype(np.float32)
+            self._load_requested.emit(audio_data, self._sample_rate)
             self.is_ready.emit(True)
-            logger.info(f"Successfully loaded and prepared audio file: {file_path}, Duration: {self._duration:.2f}s")
+            logger.info(f"Loaded audio file: {file_path}")
             return True
         except Exception as e:
             logger.exception("Error loading audio file.")
-            self.error.emit(f"Failed to load/resample audio: {e}")
-            self.is_ready.emit(False)
+            self.error.emit(f"Failed to load audio: {e}")
             return False
 
-    def stop_and_reset(self):
-        self._stop_playback_thread()
-        if self.stream:
-            self.stream.close()
-            self.stream = None
-        self._current_time = 0.0
-        self.progress.emit(0.0)
-        self._set_is_playing(False)
-
-    # --- All other methods (play, pause, seek, etc.) remain unchanged ---
-
     def play(self):
-        if self.is_playing or not self.stream: return
-        self._set_is_playing(True)
-        if self._current_time >= self._duration: self._current_time = 0.0
-        self.thread = QThread()
-        start_byte = int(self._current_time * self._sample_rate) * self.sample_width_bytes * self.num_channels
-        self.worker = _Worker(self.stream, self._audio_data_numpy.tobytes(), self._sample_rate, start_byte, self.sample_width_bytes, self.num_channels)
-        self.worker.moveToThread(self.thread)
-        self.worker.position_changed.connect(self._on_progress)
-        self.worker.finished.connect(self._on_playback_finished)
-        self.thread.started.connect(self.worker.run)
-        self.thread.start()
-
+        self._play_requested.emit()
     def pause(self):
-        if not self.is_playing: return
-        self._stop_playback_thread()
-        self._set_is_playing(False)
-
+        self._pause_requested.emit()
     def set_position(self, seconds):
-        was_playing = self.is_playing
-        self._stop_playback_thread()
-        self._current_time = max(0, min(seconds, self._duration))
-        self.progress.emit(self._current_time)
-        if was_playing: self.play()
-
+        self._position_set_requested.emit(seconds)
     def seek(self, offset_seconds):
         self.set_position(self._current_time + offset_seconds)
-
-    def _set_is_playing(self, playing):
-        if self.is_playing != playing:
-            self.is_playing = playing
-            self.state_changed.emit(playing)
-
-    def _stop_playback_thread(self):
-        if self.worker: self.worker.stop()
-        if self.thread:
-            self.thread.quit(); self.thread.wait()
-        self.thread = None
-        self.worker = None
-
     @Slot(float)
     def _on_progress(self, current_time):
         self._current_time = current_time
         self.progress.emit(current_time)
-
     @Slot()
-    def _on_playback_finished(self):
-        is_at_end = self._duration - self._current_time < 0.1
-        self._stop_playback_thread()
-        if is_at_end: self.progress.emit(self._duration)
+    def _on_finished(self):
+        self.is_playing = False
         self.finished.emit()
-        self._set_is_playing(False)
-
+    @Slot(bool)
+    def _on_state_changed(self, is_now_playing):
+        self.is_playing = is_now_playing
+        self.state_changed.emit(is_now_playing)
     def get_duration(self): return self._duration
-    def get_normalized_waveform(self): return self._normalized_waveform.tolist() if self._normalized_waveform is not None else []
+    def get_normalized_waveform(self): return self._normalized_waveform.tolist()
     def destroy(self):
-        self._stop_playback_thread()
-        if self.stream: self.stream.close()
-        if self.pyaudio_instance: self.pyaudio_instance.terminate()
-        logger.info("AudioPlayer resources completely destroyed.")
+        logger.info("Destroying AudioPlayer resources.")
+        if self.thread.isRunning():
+            self.worker.cleanup()
+            self.thread.quit()
+            if not self.thread.wait(1000):
+                self.thread.terminate()
