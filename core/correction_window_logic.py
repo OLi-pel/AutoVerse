@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 class SegmentManager:
     def __init__(self, parent_window_for_dialogs=None):
-        # ... (initialization is the same)
         self.segments = []; self.speaker_map = {}; self.unique_speaker_labels = set(); self.parent_window = parent_window_for_dialogs
         self.pattern_start_end_ts_speaker = re.compile(r"^\[(\d{2}:\d{2}\.\d{3})\s*-\s*(\d{2}:\d{2}\.\d{3})\]\s*([^:]+?):\s*(.*)$")
         self.pattern_start_end_ts_only = re.compile(r"^\[(\d{2}:\d{2}\.\d{3})\s*-\s*(\d{2}:\d{2}\.\d{3})\]\s*(.*)$")
@@ -24,7 +23,6 @@ class SegmentManager:
         self.pattern_speaker_only = re.compile(r"^\s*([^:]+?):\s*(.*)$")
         logger.info("SegmentManager initialized.")
 
-    # ... (all helper and parsing methods are the same) ...
     def _generate_unique_segment_id(self) -> str: return f"seg_{uuid.uuid4().hex[:8]}"
     def time_str_to_seconds(self, time_str: str) -> float | None:
         if not time_str or not isinstance(time_str, str): return None
@@ -69,6 +67,9 @@ class SegmentManager:
             elif m_spk_only:
                 spk, txt = m_spk_only.groups(); speaker, text, parsed_ok = spk.strip(), txt.strip(), True
             else: text = line; parsed_ok = True
+            
+            if not text.strip(): text = constants.EMPTY_SEGMENT_PLACEHOLDER
+
             if not parsed_ok: malformed_count += 1
             seg_id = self._generate_unique_segment_id()
             self.segments.append({"id": seg_id, "start_time": start_s, "end_time": end_s, "speaker_raw": speaker, "text": text, "text_tag_id": f"text_content_{seg_id}", "timestamp_tag_id": f"ts_content_{seg_id}", "has_timestamps": has_ts, "has_explicit_end_time": has_explicit_end})
@@ -76,7 +77,6 @@ class SegmentManager:
         if malformed_count > 0 and self.parent_window: messagebox.showwarning("Parsing Issues", f"{malformed_count} lines had issues.", parent=self.parent_window)
         return True
         
-    # --- ALL OTHER METHODS NOW RESTORED ---
     def clear_segments(self): self.segments.clear(); self.speaker_map.clear(); self.unique_speaker_labels.clear()
     def get_segment_by_id(self, segment_id: str) -> dict | None: return next((s for s in self.segments if s["id"] == segment_id), None)
     def get_segment_index(self, segment_id: str) -> int: return next((i for i, s in enumerate(self.segments) if s["id"] == segment_id), -1)
@@ -98,22 +98,61 @@ class SegmentManager:
         segment["has_timestamps"] = parsed_start_time is not None
         segment["has_explicit_end_time"] = parsed_start_time is not None and parsed_end_time is not None
         return True, None
-        
+
+    def remove_segment_timestamp(self, segment_id: str) -> bool:
+        segment = self.get_segment_by_id(segment_id)
+        if not segment: return False
+        segment['has_timestamps'] = False
+        segment['has_explicit_end_time'] = False
+        segment['start_time'] = 0.0
+        segment['end_time'] = None
+        return True
+
+    def clear_segment_text(self, segment_id: str) -> bool:
+        segment = self.get_segment_by_id(segment_id)
+        if not segment: return False
+        segment['text'] = constants.EMPTY_SEGMENT_PLACEHOLDER
+        return True
+
     def update_segment_from_full_line(self, segment_id: str, full_line_text: str):
         segment = self.get_segment_by_id(segment_id)
         if not segment: return
         line = full_line_text.strip(); text_content = line; prefix_parts = []
+        
+        # Guard against saving the placeholder directly as if it's user input
+        if line == constants.EMPTY_SEGMENT_PLACEHOLDER:
+            segment['text'] = constants.EMPTY_SEGMENT_PLACEHOLDER
+            return
+            
         if segment.get("has_timestamps"): prefix_parts.append(f"[{self.seconds_to_time_str(segment.get('start_time', 0))}]")
         speaker_label = segment.get("speaker_raw")
-        if speaker_label and speaker_label != constants.NO_SPEAKER_LABEL: prefix_parts.append(f"{self.speaker_map.get(speaker_label, speaker_label)}:")
-        if prefix_parts:
-            prefix_str = " ".join(prefix_parts)
-            if line.startswith(prefix_str): text_content = line[len(prefix_str):].lstrip()
-        segment['text'] = text_content
+        if speaker_label and speaker_label != constants.NO_SPEAKER_LABEL: 
+            display_name = self.speaker_map.get(speaker_label, speaker_label)
+            prefix_parts.append(f"{display_name}:")
+
+        current_prefix = " ".join(filter(None, prefix_parts))
+        
+        # Check if the text actually starts with the current prefix before stripping it.
+        if current_prefix and full_line_text.startswith(current_prefix):
+             text_content = full_line_text[len(current_prefix):].lstrip()
+        else: # Handle cases where the prefix was not found (e.g., manual deletion by user)
+            text_content = full_line_text
+            
+        segment['text'] = text_content if text_content else constants.EMPTY_SEGMENT_PLACEHOLDER
 
     def add_segment(self, segment_data: dict, reference_segment_id: str | None, position: str) -> str | None:
         new_id = self._generate_unique_segment_id()
-        final_segment_data = {"id": new_id, "text": segment_data.get("text", ""), "speaker_raw": segment_data.get("speaker_raw", constants.NO_SPEAKER_LABEL), "start_time": segment_data.get("start_time", 0.0), "end_time": segment_data.get("end_time"), "has_timestamps": segment_data.get("has_timestamps", False), "has_explicit_end_time": segment_data.get("has_explicit_end_time", False), "text_tag_id": f"text_content_{new_id}", "timestamp_tag_id": f"ts_content_{new_id}"}
+        final_segment_data = {
+            "id": new_id, 
+            "text": segment_data.get("text", constants.EMPTY_SEGMENT_PLACEHOLDER), 
+            "speaker_raw": segment_data.get("speaker_raw", constants.NO_SPEAKER_LABEL), 
+            "start_time": segment_data.get("start_time", 0.0), 
+            "end_time": segment_data.get("end_time"), 
+            "has_timestamps": segment_data.get("has_timestamps", False), 
+            "has_explicit_end_time": segment_data.get("has_explicit_end_time", False), 
+            "text_tag_id": f"text_content_{new_id}", 
+            "timestamp_tag_id": f"ts_content_{new_id}"
+        }
         if reference_segment_id: ref_index = self.get_segment_index(reference_segment_id); insert_at_index = ref_index + 1 if position == "below" else ref_index
         else: insert_at_index = len(self.segments)
         self.segments.insert(insert_at_index, final_segment_data)
@@ -125,8 +164,12 @@ class SegmentManager:
         if not original_segment: return False
         current_text = original_segment["text"]
         text_for_original = current_text[:text_split_index].strip(); text_for_new = current_text[text_split_index:].strip()
-        original_segment["text"] = text_for_original
-        new_segment_data = {"text": text_for_new, "speaker_raw": new_segment_properties.get("speaker_raw", constants.NO_SPEAKER_LABEL), "start_time": new_segment_properties.get("start_time", 0.0), "end_time": new_segment_properties.get("end_time"), "has_timestamps": new_segment_properties.get("has_timestamps", False), "has_explicit_end_time": new_segment_properties.get("has_explicit_end_time", False)}
+        
+        original_segment["text"] = text_for_original if text_for_original else constants.EMPTY_SEGMENT_PLACEHOLDER
+        
+        new_segment_data = {"text": text_for_new if text_for_new else constants.EMPTY_SEGMENT_PLACEHOLDER}
+        new_segment_data.update(new_segment_properties) # Add speaker/ts properties
+        
         new_segment_id = self.add_segment(new_segment_data, reference_segment_id=original_segment_id, position="below")
         return new_segment_id is not None
         
@@ -139,8 +182,20 @@ class SegmentManager:
         index = self.get_segment_index(segment_id)
         if index <= 0: return False
         current_segment = self.segments[index]; previous_segment = self.segments[index - 1]
-        sep = " " if previous_segment["text"] and current_segment["text"] else ""
-        previous_segment["text"] += sep + current_segment["text"]
+
+        prev_text = previous_segment['text']
+        curr_text = current_segment['text']
+
+        # Don't add a space if one segment's text is the placeholder
+        if prev_text == constants.EMPTY_SEGMENT_PLACEHOLDER:
+            prev_text = ""
+        if curr_text == constants.EMPTY_SEGMENT_PLACEHOLDER:
+            curr_text = ""
+            
+        sep = " " if prev_text and curr_text else ""
+        merged_text = prev_text + sep + curr_text
+        previous_segment['text'] = merged_text if merged_text else constants.EMPTY_SEGMENT_PLACEHOLDER
+
         if current_segment.get("has_explicit_end_time") and current_segment.get("end_time") is not None:
             previous_segment["end_time"] = current_segment["end_time"]; previous_segment["has_explicit_end_time"] = True
         else:
@@ -158,7 +213,17 @@ class SegmentManager:
             segment_to_merge_id = sorted_ids[i]
             segment_to_merge = self.get_segment_by_id(segment_to_merge_id)
             if not segment_to_merge: continue
-            sep = " " if target_segment["text"] else ""; target_segment["text"] += sep + segment_to_merge["text"]
+
+            target_text = target_segment['text']
+            merge_text = segment_to_merge['text']
+
+            if target_text == constants.EMPTY_SEGMENT_PLACEHOLDER: target_text = ""
+            if merge_text == constants.EMPTY_SEGMENT_PLACEHOLDER: merge_text = ""
+            
+            sep = " " if target_text and merge_text else "";
+            merged_text = target_text + sep + merge_text
+            target_segment["text"] = merged_text if merged_text else constants.EMPTY_SEGMENT_PLACEHOLDER
+
             if segment_to_merge.get("end_time") is not None:
                  target_segment["end_time"] = segment_to_merge["end_time"]
                  if segment_to_merge.get("has_explicit_end_time"): target_segment["has_explicit_end_time"] = True
@@ -170,6 +235,11 @@ class SegmentManager:
         output_lines = []
         for seg in self.segments:
             parts = [];
+            
+            text_to_save = seg['text']
+            if text_to_save == constants.EMPTY_SEGMENT_PLACEHOLDER:
+                text_to_save = ""
+
             if include_timestamps and seg.get("has_timestamps"):
                 start_str = self.seconds_to_time_str(seg['start_time'])
                 if include_end_times and seg.get("has_explicit_end_time") and seg['end_time'] is not None:
@@ -178,6 +248,7 @@ class SegmentManager:
             if seg['speaker_raw'] != constants.NO_SPEAKER_LABEL:
                 speaker_display_name = self.speaker_map.get(seg['speaker_raw'], seg['speaker_raw'])
                 parts.append(f"{speaker_display_name}:")
-            parts.append(seg['text'])
+            
+            parts.append(text_to_save)
             output_lines.append(" ".join(filter(None, parts))) 
         return output_lines
