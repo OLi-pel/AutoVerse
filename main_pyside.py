@@ -211,6 +211,23 @@ class MainApplication:
         self.window.model_dropdown.setCurrentText("large (recommended)")
         if self.window.huggingface_token_frame: self.window.huggingface_token_frame.hide()
         token = self.config_manager.load_huggingface_token()
+
+        # --- NEW FONT AND SIZE LOGIC ---
+        # Populate Font Size ComboBox
+        font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
+        self.window.font_size_combo.addItems(font_sizes)
+        self.window.font_size_combo.setCurrentText("12") # Set default size
+
+        # Populate Font Family ComboBox
+        db = QFontDatabase()
+        font_families = db.families()
+        self.window.text_font_combo.addItems(font_families)
+        
+        # Try to set a good default monospace font
+        default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"
+        self.window.text_font_combo.setCurrentText(default_font)
+        # --- END OF NEW LOGIC ---
+
         if token: self.window.huggingface_token_entry.setText(token)
         if self.window.correction_play_pause_btn:
             button = self.window.correction_play_pause_btn
