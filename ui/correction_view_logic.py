@@ -683,7 +683,14 @@ class CorrectionViewLogic(QObject):
     @Slot()
     def browse_audio_file(self): self._safe_action(self._browse_audio_file_action)
     def _browse_audio_file_action(self):
-        path, _ = QFileDialog.getOpenFileName(self.main_window, "Select Audio", "", "Audio (*.wav *.mp3 *.aac *.flac *.m4a)");
+        # --- THE FIX ---
+        file_filter = (
+            "All Media Files (*.wav *.mp3 *.aac *.flac *.m4a *.mp4 *.mov *.avi *.mkv);;"
+            "Audio Files (*.wav *.mp3 *.aac *.flac *.m4a);;"
+            "Video Files (*.mp4 *.mov *.avi *.mkv);;"
+            "All Files (*)"
+        )
+        path, _ = QFileDialog.getOpenFileName(self.main_window, "Select Audio or Video File", "", file_filter);
         if path: self.main_window.correction_audio_entry.setText(path)
         
     @Slot()
@@ -795,6 +802,20 @@ class CorrectionViewLogic(QObject):
     @Slot(float)
     def seek_to_percentage(self, percentage):
         if self.audio_player.get_duration() > 0: self.audio_player.set_position(percentage * self.audio_player.get_duration())
+    @Slot(str, str)
+    def load_files_from_paths(self, audio_path: str, txt_path: str):
+        """A convenience slot to be called from the main window."""
+        if not os.path.exists(audio_path) or not os.path.exists(txt_path):
+            QMessageBox.critical(self.main_window, "File Not Found", 
+                                 f"Could not find one of the required files:\nAudio: {audio_path}\nText: {txt_path}")
+            return
+            
+        # Set the text of the QLineEdit widgets
+        self.main_window.correction_audio_entry.setText(audio_path)
+        self.main_window.correction_transcription_entry.setText(txt_path)
+        
+        # Now, call the existing load function which reads from the line edits
+        self.load_files()
     def format_time(self, seconds): 
         m, s = divmod(abs(seconds), 60)
         return f"{int(m):02d}:{s:06.3f}"

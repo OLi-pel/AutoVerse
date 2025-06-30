@@ -1,48 +1,60 @@
 # core/app_worker.py
 import logging
 import os
+import tempfile
+from moviepy.editor import VideoFileClip
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
+# Set up logger for the worker
 logger = logging.getLogger(__name__)
+logger.propagate = False  # Prevent double logging in the main process console
 
-def processing_worker_function(queue, audio_paths, options, cache_dir):
+# List of common video file extensions
+VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
+
+def _is_video_file(file_path):
+    """Checks if a file is a video based on its extension."""
+    return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+
+def _extract_audio(video_path):
+    """Extracts audio from a video file and returns a temporary audio file path."""
+    try:
+        video = VideoFileClip(video_path)
+        # Create a temporary file with a .wav extension
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
+            temp_path = temp_audio_file.name
+        
+        video.audio.write_audiofile(temp_path, codec='pcm_s16le')
+        logger.info(f"Successfully extracted audio from {video_path} to {temp_path}")
+        return temp_path
+    except Exception as e:
+        logger.error(f"Failed to extract audio from {video_path}: {e}")
+        raise # Re-raise the exception to be caught by the main worker loop
+
+def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None):
     """
     This function runs in a separate process and communicates via a queue.
+    Handles both single and batch processing, including audio extraction from video.
     """
-     # --- NEW LOGGING FIX ---
-    # Get a logger instance, but configure it to not propagate messages
-    # up to the root logger, effectively silencing it for this process.
-    logger = logging.getLogger(__name__)
-    logger.propagate = False
-    # --- END OF FIX ---
     try:
-        # 1. Create a progress callback that puts messages on the queue
         def progress_callback(message, percentage=None):
             if percentage is not None:
-                queue.put(('progress', percentage))
+                # For batch, this will be per-file progress
+                queue.put((constants.MSG_TYPE_PROGRESS, percentage))
             if message:
-                queue.put(('status', message))
+                queue.put((constants.MSG_TYPE_STATUS, message))
 
-        # 2. Initialize the AudioProcessor
         def _map_ui_model_key_to_whisper_name(ui_model_key: str) -> str:
-            mapping = {
-                "tiny": "tiny", "base": "base", "small": "small", "medium": "medium",
-                "large (recommended)": "large", "turbo": "small"
-            }
+            # ... (mapping is the same)
+            mapping = {"tiny": "tiny", "base": "base", "small": "small", "medium": "medium", "large (recommended)": "large", "turbo": "small"}
             return mapping.get(ui_model_key, "large")
 
         processor_config = {
-            'huggingface': {
-                'use_auth_token': 'yes' if options['enable_diarization'] else 'no',
-                'hf_token': options['hf_token']
-            },
-            'transcription': {
-                'model_name': _map_ui_model_key_to_whisper_name(options['model_key'])
-            }
+            'huggingface': {'use_auth_token': 'yes' if options['enable_diarization'] else 'no', 'hf_token': options['hf_token']},
+            'transcription': {'model_name': _map_ui_model_key_to_whisper_name(options['model_key'])}
         }
         
-        # This part is CPU/memory intensive and is now isolated
         audio_processor = AudioProcessor(
             config=processor_config,
             progress_callback=progress_callback,
@@ -52,17 +64,71 @@ def processing_worker_function(queue, audio_paths, options, cache_dir):
             enable_auto_merge=options['auto_merge'],
             cache_dir=cache_dir
         )
+        
+        all_results = []
+        total_files = len(file_paths)
 
-        # 3. Process the audio
-        if len(audio_paths) == 1:
-            result = audio_processor.process_audio(audio_paths[0])
-        else:
-            result = ProcessedAudioResult(constants.STATUS_ERROR, message="Batch processing not implemented.")
+        for idx, file_path in enumerate(file_paths):
+            current_file_display_name = os.path.basename(file_path)
+            queue.put((constants.MSG_TYPE_BATCH_FILE_START, {
+                constants.KEY_BATCH_FILENAME: current_file_display_name,
+                constants.KEY_BATCH_CURRENT_IDX: idx + 1,
+                constants.KEY_BATCH_TOTAL_FILES: total_files
+            }))
+            
+            audio_to_process = None
+            temp_audio_path = None
+            is_temp_file_used = False
 
-        # 4. Put the final result on the queue
-        queue.put(('finished', result))
+            try:
+                if _is_video_file(file_path):
+                    progress_callback(f"Extracting audio from {current_file_display_name}...", 0)
+                    temp_audio_path = _extract_audio(file_path)
+                    audio_to_process = temp_audio_path
+                    is_temp_file_used = True
+                else:
+                    audio_to_process = file_path
+
+                if not audio_to_process:
+                     raise ValueError("Could not determine audio source for processing.")
+                
+                result = audio_processor.process_audio(audio_to_process)
+                result.source_file = file_path # Add original source path to result for context
+
+                # If processing was successful, determine save path
+                if result.status == constants.STATUS_SUCCESS:
+                    model_name_key = options["model_key"].split(" ")[0]
+                    base_name, _ = os.path.splitext(os.path.basename(file_path))
+                    output_filename = f"{base_name}_{model_name_key}_transcription.txt"
+                    
+                    # If batch processing, save to the destination folder immediately
+                    if total_files > 1 and dest_folder:
+                        save_path = os.path.join(dest_folder, output_filename)
+                        AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output)
+                        result.output_path = save_path # Store where it was saved
+                        progress_callback(f"Saved to {os.path.basename(save_path)}", 100)
+                
+                all_results.append(result)
+
+            except Exception as e:
+                logger.exception(f"An error occurred in the worker process for file: {file_path}.")
+                error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=f"Failed to process {current_file_display_name}: {e}")
+                error_result.source_file = file_path
+                all_results.append(error_result)
+            
+            finally:
+                if is_temp_file_used and temp_audio_path and os.path.exists(temp_audio_path):
+                    try:
+                        os.remove(temp_audio_path)
+                        logger.info(f"Successfully cleaned up temporary audio file: {temp_audio_path}")
+                    except OSError as e:
+                        logger.error(f"Failed to remove temporary file {temp_audio_path}: {e}")
+        
+        # Signal that the entire batch is complete
+        final_payload = {constants.KEY_BATCH_ALL_RESULTS: all_results}
+        queue.put((constants.MSG_TYPE_BATCH_COMPLETED, final_payload))
 
     except Exception as e:
-        logger.exception("An error occurred in the worker process.")
+        logger.exception("A critical unhandled error occurred in the worker process.")
         error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=str(e))
-        queue.put(('finished', error_result))
+        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]})) # Send as a batch result

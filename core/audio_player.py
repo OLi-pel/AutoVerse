@@ -1,14 +1,23 @@
 # core/audio_player.py
 import logging
 import time
+import os
 import numpy as np
 import pyaudio
 import soundfile as sf
+from moviepy.editor import VideoFileClip
 from scipy import signal
 from PySide6.QtCore import QObject, Signal, Slot, QThread, QCoreApplication
 
 logger = logging.getLogger(__name__)
 TARGET_PLAYBACK_SR = 44100
+
+VIDEO_EXTENSIONS = ('.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv')
+
+def _is_video_file(file_path):
+    if not isinstance(file_path, str):
+        return False
+    return file_path.lower().endswith(VIDEO_EXTENSIONS)
 
 class _PlayerWorker(QObject):
     position_changed = Signal(float)
@@ -26,7 +35,7 @@ class _PlayerWorker(QObject):
         self._sample_width_bytes = 0
         self._current_frame = 0
         self._total_frames = 0
-        self._chunk_size_frames = 64  # Responsive chunk size
+        self._chunk_size_frames = 1024
         self._is_paused = False
         self._stop_requested = False
 
@@ -40,7 +49,7 @@ class _PlayerWorker(QObject):
         self._stop()
         self._audio_data = audio_data
         self._sample_rate = sample_rate
-        self._num_channels = self._audio_data.shape[1]
+        self._num_channels = self._audio_data.shape[1] if self._audio_data.ndim > 1 else 1
         self._sample_width_bytes = self._audio_data.dtype.itemsize
         self._total_frames = len(self._audio_data)
         self.set_position(0.0)
@@ -108,8 +117,9 @@ class _PlayerWorker(QObject):
             self.position_changed.emit(self._current_frame / self._sample_rate)
             QCoreApplication.processEvents()
 
-        self.stream.stop_stream()
-        self.stream.close()
+        if self.stream:
+            self.stream.stop_stream()
+            self.stream.close()
         self.stream = None
         self._stop_requested = False
         if self._current_frame >= self._total_frames:
@@ -158,52 +168,77 @@ class AudioPlayer(QObject):
     def load_file(self, file_path):
         try:
             self.is_ready.emit(False)
-            original_data, original_sr = sf.read(file_path, dtype='float32', always_2d=True)
-            if original_sr != TARGET_PLAYBACK_SR:
-                num_frames = int(len(original_data) * TARGET_PLAYBACK_SR / original_sr)
-                audio_data = (signal.resample(original_data, num_frames) * 32767).astype(np.int16)
-                self._sample_rate = TARGET_PLAYBACK_SR
+            audio_data_float = None
+            source_sr = TARGET_PLAYBACK_SR
+
+            if _is_video_file(file_path):
+                logger.info(f"Detected video file, extracting audio in memory: {file_path}")
+                with VideoFileClip(file_path) as video:
+                    source_sr = video.audio.fps
+                    # --- THIS IS THE FINAL, CORRECTED LOGIC ---
+                    # 1. Provide the required `chunksize` to `iter_chunks`.
+                    # 2. Use `np.concatenate` to join the chunks into a single stream.
+                    audio_chunks = [chunk for chunk in video.audio.iter_chunks(chunksize=source_sr)]
+                    audio_data_float = np.concatenate(audio_chunks)
+
             else:
-                audio_data = (original_data * 32767).astype(np.int16)
-                self._sample_rate = original_sr
-            self._duration = len(audio_data) / float(self._sample_rate)
-            mono_data = audio_data.mean(axis=1) if audio_data.shape[1] > 1 else audio_data.flatten()
-            self._normalized_waveform = (mono_data / 32768.0).astype(np.float32)
-            self._load_requested.emit(audio_data, self._sample_rate)
+                logger.info(f"Detected audio file, loading directly: {file_path}")
+                audio_data_float, source_sr = sf.read(file_path, dtype='float32')
+
+            # Ensure data is 1D (mono) for initial processing.
+            if audio_data_float.ndim > 1:
+                mono_for_viz = audio_data_float.mean(axis=1)
+            else:
+                mono_for_viz = audio_data_float
+
+            playback_sr = source_sr
+            if source_sr != TARGET_PLAYBACK_SR:
+                logger.info(f"Resampling audio from {source_sr}Hz to {TARGET_PLAYBACK_SR}Hz")
+                num_frames = int(len(mono_for_viz) * TARGET_PLAYBACK_SR / source_sr)
+                mono_for_playback = signal.resample(mono_for_viz, num_frames)
+                playback_sr = TARGET_PLAYBACK_SR
+            else:
+                mono_for_playback = mono_for_viz
+            
+            # Prepare data for PyAudio worker: stereo, 16-bit integer
+            if mono_for_playback.ndim == 1:
+                mono_for_playback_stereo = np.stack([mono_for_playback, mono_for_playback], axis=-1)
+            else: # Already stereo, no need to stack
+                mono_for_playback_stereo = mono_for_playback
+
+            audio_data_int16 = (mono_for_playback_stereo * 32767).astype(np.int16)
+            
+            # Prepare data for waveform visualization
+            max_val = np.max(np.abs(mono_for_viz))
+            self._normalized_waveform = (mono_for_viz / max_val if max_val > 0 else mono_for_viz).tolist()
+            
+            self._duration = len(mono_for_playback) / float(playback_sr)
+            
+            self._load_requested.emit(audio_data_int16, playback_sr)
             self.is_ready.emit(True)
-            logger.info(f"Loaded audio file: {file_path}")
+            logger.info(f"Successfully loaded. Duration: {self._duration:.2f}s, Playback SR: {playback_sr}Hz")
             return True
+            
         except Exception as e:
-            logger.exception("Error loading audio file.")
-            self.error.emit(f"Failed to load audio: {e}")
+            logger.exception("Error loading audio/video file.")
+            self.error.emit(f"Failed to load media file: {e}")
             return False
 
-    def play(self):
-        self._play_requested.emit()
-    def pause(self):
-        self._pause_requested.emit()
-    def set_position(self, seconds):
-        self._position_set_requested.emit(seconds)
-    def seek(self, offset_seconds):
-        self.set_position(self._current_time + offset_seconds)
+    def play(self): self._play_requested.emit()
+    def pause(self): self._pause_requested.emit()
+    def set_position(self, seconds): self._position_set_requested.emit(seconds)
+    def seek(self, offset_seconds): self.set_position(self._current_time + offset_seconds)
     @Slot(float)
-    def _on_progress(self, current_time):
-        self._current_time = current_time
-        self.progress.emit(current_time)
+    def _on_progress(self, current_time): self._current_time = current_time; self.progress.emit(current_time)
     @Slot()
-    def _on_finished(self):
-        self.is_playing = False
-        self.finished.emit()
+    def _on_finished(self): self.is_playing = False; self.state_changed.emit(False); self.finished.emit()
     @Slot(bool)
-    def _on_state_changed(self, is_now_playing):
-        self.is_playing = is_now_playing
-        self.state_changed.emit(is_now_playing)
+    def _on_state_changed(self, is_now_playing): self.is_playing = is_now_playing; self.state_changed.emit(is_now_playing)
     def get_duration(self): return self._duration
-    def get_normalized_waveform(self): return self._normalized_waveform.tolist()
+    def get_normalized_waveform(self): return self._normalized_waveform
     def destroy(self):
         logger.info("Destroying AudioPlayer resources.")
         if self.thread.isRunning():
-            self.worker.cleanup()
             self.thread.quit()
             if not self.thread.wait(1000):
                 self.thread.terminate()
