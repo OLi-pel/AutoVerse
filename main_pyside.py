@@ -5,29 +5,27 @@ import logging
 import multiprocessing
 from queue import Empty
 
-from PySide6.QtWidgets import (QApplication, QFileDialog, QMessageBox, QLineEdit, QPushButton, 
-                               QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, 
-                               QWidget, QTabWidget, QGroupBox)
-from PySide6.QtCore import QTimer, Slot
-from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
-from PySide6.QtUiTools import QUiLoader
+# --- THE FIX: Keep imports needed for class definition at the global level ---
+from PySide6.QtCore import QObject, Slot
+from PySide6.QtWidgets import QApplication
 
-from utils.logging_setup import setup_logging
-from utils import constants
-from utils.config_manager import ConfigManager
-from ui.correction_view_logic import CorrectionViewLogic
-from core.app_worker import processing_worker_function
-from core.audio_processor import AudioProcessor
-from ui.selectable_text_edit import SelectableTextEdit
-
-# --- THE FIX: setup_logging() and logger are returned to the global scope ---
-setup_logging()
+# The logger object must also be global for the class to see it
 logger = logging.getLogger(__name__)
 
 
-class MainApplication:
-    def __init__(self):
-        self.app = QApplication(sys.argv)
+class MainApplication(QObject): # Inherits from QObject for signal handling
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        
+        # Defer all other heavy imports
+        from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
+        from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
+        from PySide6.QtUiTools import QUiLoader
+        from utils.config_manager import ConfigManager
+        from utils import constants
+        from ui.correction_view_logic import CorrectionViewLogic
+        from ui.selectable_text_edit import SelectableTextEdit
         
         loader = QUiLoader()
         loader.registerCustomWidget(SelectableTextEdit)
@@ -48,12 +46,15 @@ class MainApplication:
         self._setup_icons()
         
         self.correction_logic = CorrectionViewLogic(self.window)
+        
+        self.app.aboutToQuit.connect(self.cleanup)
 
         self.audio_file_paths = []
         self.process = None
         self.queue = None
         self.last_single_file_result_path = None
 
+        from PySide6.QtCore import QTimer
         self.timer = QTimer()
         self.timer.timeout.connect(self.check_queue)
         
@@ -62,7 +63,20 @@ class MainApplication:
         
         self.window.show()
 
+    def cleanup(self):
+        logger.info("Application quitting. Cleaning up...")
+        if self.process and self.process.is_alive():
+            logger.warning("Terminating active process due to application quit.")
+            self.process.terminate()
+            self.process.join(1)
+        if hasattr(self, 'correction_logic') and hasattr(self.correction_logic, 'audio_player'):
+            self.correction_logic.audio_player.destroy()
+        logger.info("Cleanup finished.")
+    
     def _promote_widgets(self):
+        from PySide6.QtWidgets import QLineEdit, QPushButton, QComboBox, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
+        from ui.selectable_text_edit import SelectableTextEdit
+
         self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
         self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
         self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
@@ -104,33 +118,25 @@ class MainApplication:
         self.window.font_size_combo = self.window.findChild(QComboBox, "Police_size")
 
     def _setup_fonts(self):
+        from PySide6.QtGui import QFont, QFontDatabase
         font_id = QFontDatabase.font("Monaco", "Roman", 12)
         if font_id == -1: self.window.monospace_font = QFont("Monospace", 12)
         else: self.window.monospace_font = QFont("Monaco")
         self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
 
     def _setup_icons(self):
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QPushButton, QCheckBox
+
         base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         icon_dir = os.path.join(base_dir, 'assets', 'icons')
-        icon_map = {
-            self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png",
-            self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png",
-            self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png",
-            self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png",
-            self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png",
-            self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png",
-            self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png",
-            self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", 
-            self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png",
-            self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png",
-            self.window.delete_segment_btn: "trash.png",
-        }
+        icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png", }
         for widget, filename in icon_map.items():
             if widget:
                 icon_path = os.path.join(icon_dir, filename)
                 if os.path.exists(icon_path): widget.setIcon(QIcon(icon_path))
                 else: logger.warning(f"Icon not found: {icon_path}")
-
+        
         self.window.icon_play = QIcon(os.path.join(icon_dir, "play.png"))
         self.window.icon_abort = QIcon(os.path.join(icon_dir, "stop.png")) 
         self.window.icon_pause = QIcon(os.path.join(icon_dir, "pause.png"))
@@ -155,6 +161,7 @@ class MainApplication:
         if not is_checked: self.window.auto_merge_checkbutton.setChecked(False)
 
     def set_ui_for_processing(self, is_processing):
+        from PySide6.QtWidgets import QGroupBox
         self.window.findChild(QGroupBox, "Audio_file_frame").setEnabled(not is_processing)
         self.window.findChild(QGroupBox, "Processing_options_frame").setEnabled(not is_processing)
         self.window.start_processing_button.setEnabled(True) 
@@ -168,11 +175,12 @@ class MainApplication:
             self.window.start_processing_button.setIcon(self.window.icon_play)
         
         self.is_processing = is_processing
-        
+
     def get_processing_options(self):
         return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.diarization_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
 
     def load_initial_settings(self):
+        from PySide6.QtGui import QFontMetrics, QFontDatabase
         self.window.correction_button.setEnabled(False)
         self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
         self.window.model_dropdown.setCurrentText("large (recommended)")
@@ -183,11 +191,9 @@ class MainApplication:
         font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
         self.window.font_size_combo.addItems(font_sizes)
         self.window.font_size_combo.setCurrentText("12")
-
         db = QFontDatabase()
         font_families = db.families()
         self.window.text_font_combo.addItems(font_families)
-        
         default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"
         self.window.text_font_combo.setCurrentText(default_font)
 
@@ -201,6 +207,7 @@ class MainApplication:
         logger.info("Initial settings loaded.")
 
     def save_huggingface_token(self):
+        from PySide6.QtWidgets import QMessageBox
         token = self.window.huggingface_token_entry.text().strip()
         self.config_manager.save_huggingface_token(token)
         self.config_manager.set_use_auth_token(bool(token))
@@ -208,10 +215,10 @@ class MainApplication:
 
     @Slot()
     def select_files(self):
+        from PySide6.QtWidgets import QFileDialog
         if self.is_processing: return
         file_filter = ("All Media Files (*.wav *.mp3 *.aac *.flac *.m4a *.mp4 *.mov *.avi *.mkv);;Audio Files (*.wav *.mp3 *.aac *.flac *.m4a);;Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)")
         paths, _ = QFileDialog.getOpenFileNames(self.window, "Select Audio or Video Files", "", file_filter)
-
         if paths:
             self.audio_file_paths = paths
             self.window.audio_file_entry.setText(paths[0] if len(paths) == 1 else f"{len(paths)} files selected")
@@ -219,31 +226,23 @@ class MainApplication:
 
     @Slot()
     def start_or_abort_processing(self):
+        from PySide6.QtWidgets import QMessageBox, QFileDialog
+        from core.app_worker import processing_worker_function
         if self.is_processing and self.process:
-            if self.process.is_alive():
-                self.process.terminate()
-                self.process.join(timeout=1)
-            self.timer.stop()
-            self.process = None
-            self.window.status_label.setText("Processing aborted by user.")
-            self.window.progress_bar.setValue(0)
-            self.set_ui_for_processing(False)
-            return
+            if self.process.is_alive(): self.process.terminate(); self.process.join(timeout=1)
+            self.timer.stop(); self.process = None; self.window.status_label.setText("Processing aborted by user.")
+            self.window.progress_bar.setValue(0); self.set_ui_for_processing(False); return
 
         if not self.audio_file_paths:
-            QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
-            return
+            QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first."); return
 
         destination_folder = None
         if len(self.audio_file_paths) > 1:
-            destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder for Transcriptions")
+            destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder")
             if not destination_folder:
-                self.window.status_label.setText("Batch processing cancelled by user.")
-                return
+                self.window.status_label.setText("Batch processing cancelled."); return
 
-        self.set_ui_for_processing(True)
-        self.window.progress_bar.setValue(0)
-        self.window.output_text_area.clear()
+        self.set_ui_for_processing(True); self.window.progress_bar.setValue(0); self.window.output_text_area.clear()
         
         options = self.get_processing_options()
         cache_dir = os.path.join(os.path.expanduser('~'), 'TranscriptionOli_Cache')
@@ -251,19 +250,20 @@ class MainApplication:
         self.queue = multiprocessing.Queue()
         self.process = multiprocessing.Process(
             target=processing_worker_function, 
-            args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder),
-            daemon=True
+            args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder), daemon=True
         )
         self.process.start()
         self.timer.start(100)
 
     def check_queue(self):
+        from utils import constants
+        from PySide6.QtWidgets import QMessageBox
         try:
             msg_type, data = self.queue.get_nowait()
             if msg_type == constants.MSG_TYPE_PROGRESS: self.window.progress_bar.setValue(data)
             elif msg_type == constants.MSG_TYPE_STATUS: self.window.status_label.setText(data)
             elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
-                file_info = data; status_text = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"; self.window.status_label.setText(status_text); self.window.progress_bar.setValue(0)
+                file_info = data; self.window.status_label.setText(f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"); self.window.progress_bar.setValue(0)
             elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED:
                 self.timer.stop()
                 if self.process: self.process.join(); self.process = None
@@ -273,10 +273,12 @@ class MainApplication:
             if self.is_processing and (not self.process or not self.process.is_alive()):
                 self.timer.stop(); self.process = None; self.set_ui_for_processing(False)
                 if self.window.status_label.text() != "Processing aborted by user.":
-                    QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly. Check logs for details.")
+                    QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                     self.window.status_label.setText("Error: Processing stopped unexpectedly.")
 
     def handle_batch_results(self, final_payload):
+        from utils import constants
+        from PySide6.QtWidgets import QMessageBox
         results = final_payload[constants.KEY_BATCH_ALL_RESULTS]; summary = []; successful_count = 0; error_count = 0
         
         if len(results) == 1:
@@ -295,9 +297,10 @@ class MainApplication:
         self.set_ui_for_processing(False)
     
     def prompt_and_save_single_result(self, result):
+        from core.audio_processor import AudioProcessor
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
         if hasattr(result, 'output_path') and result.output_path:
-             self.last_single_file_result_path = result.output_path; self.window.correction_button.setEnabled(True); self.window.status_label.setText(f"Transcription saved to {os.path.basename(result.output_path)}")
-             return
+             self.last_single_file_result_path = result.output_path; self.window.correction_button.setEnabled(True); self.window.status_label.setText(f"Transcription saved to {os.path.basename(result.output_path)}"); return
 
         base_name, _ = os.path.splitext(os.path.basename(result.source_file)); model_name = self.get_processing_options()["model_key"].split(" ")[0]
         default_fn = os.path.join(os.getcwd(), f"{base_name}_{model_name}_transcription.txt")
@@ -314,16 +317,22 @@ class MainApplication:
 
     @Slot()
     def go_to_correction(self):
+        from PySide6.QtWidgets import QMessageBox
         if not self.last_single_file_result_path or not self.audio_file_paths:
-            QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths to load into the correction window."); return
+            QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths."); return
             
         audio_path = self.audio_file_paths[0]; txt_path = self.last_single_file_result_path
         self.correction_logic.load_files_from_paths(audio_path=audio_path, txt_path=txt_path)
         self.window.main_tab_widget.setCurrentIndex(1)
-        
-    def run(self): sys.exit(self.app.exec())
+
+
+def main():
+    from utils.logging_setup import setup_logging
+    setup_logging()
+    app = QApplication(sys.argv)
+    main_app_logic = MainApplication(app)
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     multiprocessing.set_start_method('spawn', force=True)
-    main_app = MainApplication()
-    main_app.run()
+    main()
