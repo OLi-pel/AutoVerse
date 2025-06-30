@@ -21,14 +21,13 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      # --- THE FIX: Create placeholder icon file before build ---
-      - name: Create Placeholder Icon
+      # --- THE FIX: Download a valid, real .ico file ---
+      - name: Create Valid Placeholder Icon
         run: |
-          mkdir assets
-          # Create a minimal, blank .ico file. You can replace this later.
-          echo "" > assets/logo.ico
-        shell: cmd
-
+          New-Item -ItemType Directory -Force -Path "assets"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\logo.ico"
+        shell: powershell
+        
       - name: Download and prepare FFmpeg
         run: |
           New-Item -ItemType Directory -Force -Path "bin"
@@ -37,7 +36,7 @@ jobs:
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt

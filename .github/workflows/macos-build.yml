@@ -26,12 +26,13 @@ jobs:
       - name: Install PortAudio
         run: brew install portaudio
 
-      # --- THE FIX: Create placeholder icon file before build ---
-      - name: Create Placeholder Icon
+      # --- THE FIX: Download a valid, real .icns file ---
+      - name: Create Valid Placeholder Icon
         run: |
           mkdir -p assets
-          # Create a minimal, blank .icns file. You can replace this later.
-          touch assets/logo.icns
+          # Download the default PyInstaller icon, which is known to be valid
+          curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
+
 
       - name: Install dependencies
         run: |
