@@ -1,18 +1,15 @@
-# This is a GitHub Actions workflow file.
-# It defines a set of automated tasks to build the Windows executable.
+# .github/workflows/build-windows.yml
+# This is the GitHub Actions workflow to build the Windows executable.
 
 name: Build Windows Executable
 
-# This workflow will run automatically every time you push code to the 'main' branch.
 on:
   push:
     branches: [ "main" ]
-  # Allows you to run this workflow manually from the Actions tab as well.
   workflow_dispatch:
 
 jobs:
   build:
-    # The type of virtual machine to run the job on. We need Windows.
     runs-on: windows-latest
 
     steps:
@@ -25,34 +22,37 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # Cache dependencies to speed up future builds
+          cache: 'pip'
 
-      # Step 3: Install project dependencies
+      # Step 3: Download and place FFmpeg where the .spec file can find it
+      # Note: This uses PowerShell commands, which are native to Windows runners.
+      - name: Download and prepare FFmpeg
+        run: |
+          New-Item -ItemType Directory -Force -Path "bin"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile "ffmpeg.7z"
+          # '7z' is pre-installed on GitHub Actions Windows VMs
+          7z x ffmpeg.7z -offmpeg*
+          Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
+        shell: powershell
+
+      # Step 4: Install Python dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Step 4: Download and place FFmpeg
-      # This automatically downloads ffmpeg and puts it in the 'bin' folder,
-      # so your .spec file can find it.
-      - name: Download FFmpeg
-        run: |
-          New-Item -ItemType Directory -Force -Path "bin"
-          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile "ffmpeg.7z"
-          # The '7z' command is pre-installed on GitHub's Windows runners
-          7z x ffmpeg.7z -offmpeg
-          Copy-Item "ffmpeg/*/bin/ffmpeg.exe" "bin/ffmpeg.exe"
-        shell: powershell
-
-      # Step 5: Build the executable using PyInstaller
+      # Step 5: Build the application using your universal .spec file
       - name: Build with PyInstaller
-        run: pyinstaller TranscriptionApp_windows.spec
+        run: pyinstaller TranscriptionOli.spec
 
-      # Step 6: Upload the final .exe file as a downloadable artifact
-      # You will be able to download this from the "Actions" tab on your repo.
+      # Step 6: Zip the output folder for easy distribution
+      - name: Zip the output folder
+        run: Compress-Archive -Path dist/TranscriptionOli_App -DestinationPath dist/TranscriptionOli_Windows.zip
+        shell: powershell
+        
+      # Step 7: Upload the zipped folder as a downloadable artifact
       - name: Upload Executable Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TranscriptionOli-Windows-Executable
-          path: dist/TranscriptionOli.exe
+          name: TranscriptionOli-Windows-App
+          path: dist/TranscriptionOli_Windows.zip
