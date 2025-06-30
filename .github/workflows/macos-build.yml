@@ -1,51 +1,49 @@
 # .github/workflows/build-macos.yml
-# This is the GitHub Actions workflow for the macOS build.
 
 name: Build macOS Application
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: macos-latest
 
     steps:
-      # Step 1: Check out your repository code, including LFS if you use it for large models
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      # Step 2: Set up a recent version of Python
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # Speeds up dependency installation in future runs
+          cache: 'pip'
           
-      # Step 3: Install PortAudio (a required dependency for PyAudio) via Homebrew
       - name: Install PortAudio
         run: brew install portaudio
 
-      # Step 4: Install your project's Python dependencies
+      # --- THE FIX: Create placeholder icon file before build ---
+      - name: Create Placeholder Icon
+        run: |
+          mkdir -p assets
+          # Create a minimal, blank .icns file. You can replace this later.
+          touch assets/logo.icns
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Step 5: Build the application using your universal .spec file
       - name: Build with PyInstaller
         run: pyinstaller TranscriptionOli.spec
 
-      # Step 6: Create a distributable .zip archive of the final .app bundle
-      # This is the standard way to distribute macOS applications.
       - name: Zip the .app bundle
         run: ditto -c -k --sequesterRsrc --keepParent dist/TranscriptionOli.app dist/TranscriptionOli_macOS.zip
 
-      # Step 7: Upload the zipped application as a build artifact
       - name: Upload Application Artifact
         uses: actions/upload-artifact@v4
         with:
