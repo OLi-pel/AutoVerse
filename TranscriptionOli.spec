@@ -1,16 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
+import os
 from PyInstaller.utils.hooks import collect_data_files
 
 # This spec file is designed to be cross-platform for Windows and macOS.
 
 # --- Platform-specific setup ---
-# Set the executable name and runtime hook for Windows
 if sys.platform == 'win32':
-    app_name = 'TranscriptionOli.exe'
+    app_name = 'TranscriptionOli' # The .exe will be added automatically
     runtime_hooks = ['win_pre_init_hook.py']
-    # Include ffmpeg binary for Windows
     ffmpeg_binary = [('bin/ffmpeg.exe', 'bin')]
 else:
     app_name = 'TranscriptionOli'
@@ -19,16 +18,22 @@ else:
 
 
 a = Analysis(
-    ['main_pyside.py'],  # Main entry point for the PySide6 app
+    ['main_pyside.py'],
     pathex=[],
-    binaries=ffmpeg_binary, # Include ffmpeg only on Windows
+    binaries=ffmpeg_binary,
     datas=[
         # Add the core UI and assets needed by the application
         ('ui/main_window.ui', 'ui'),
-        ('assets', 'assets')
+        ('assets', 'assets'),
+        
+        # --- THE FIX ---
+        # Explicitly collect all data files from these key libraries
+        # This solves the `lightning_fabric/version.info` not found error.
+        *collect_data_files('lightning_fabric'),
+        *collect_data_files('speechbrain'),
+        *collect_data_files('pyannote')
     ],
     hiddenimports=[
-        # A comprehensive list to ensure stability
         'torch',
         'torchaudio',
         'soundfile',
@@ -41,11 +46,11 @@ a = Analysis(
         'scipy',
         'moviepy',
         'PySide6',
-        'lightning_fabric', # From old spec, good to keep
+        'lightning_fabric',
     ],
-    hookspath=['.'], # Look for our custom hooks (hook-whisper.py, etc.) in the root dir
+    hookspath=['.'],
     hooksconfig={},
-    runtime_hooks=runtime_hooks, # Include the pre-init hook only on Windows
+    runtime_hooks=runtime_hooks,
     excludes=[],
     noarchive=False
 )
@@ -61,12 +66,11 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False, # This is a GUI app, not a console app
+    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # TODO: Create a logo.icns for macOS and logo.ico for Windows in the 'assets' dir
     icon=os.path.join('assets', 'logo.icns' if sys.platform == 'darwin' else 'logo.ico')
 )
 coll = COLLECT(
@@ -77,15 +81,13 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='TranscriptionOli_App' # The final folder name will be this
+    name='TranscriptionOli_App'
 )
 
-# --- macOS Specific BUNDLE block ---
-# This part only runs when building on a Mac, creating the .app bundle
 if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='TranscriptionOli.app',
-        icon=os.path.join('assets', 'logo.icns'), # Path to your .icns file
-        bundle_identifier=None, # e.g., 'com.yourname.transcriptionoli'
+        icon=os.path.join('assets', 'logo.icns'),
+        bundle_identifier=None,
     )
