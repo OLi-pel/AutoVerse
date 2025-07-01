@@ -3,9 +3,10 @@ import logging
 import os
 import sys
 import tempfile
+import traceback # <-- IMPORT TRACEBACK
 from moviepy.editor import VideoFileClip
 from moviepy.config import change_settings
-import torchaudio # <-- Import torchaudio
+import torchaudio
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
@@ -32,8 +33,7 @@ def _extract_audio(video_path):
 
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
     """
-    This function runs in a separate process. It configures its own logging,
-    ffmpeg path, and now the torchaudio backend.
+    This function runs in a separate process and now provides full error tracebacks.
     """
     # --- Step 1: Worker-Specific Logging Setup ---
     log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
@@ -45,30 +45,20 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
     logger.addHandler(file_handler)
     logger.setLevel(constants.ACTIVE_LOG_LEVEL)
 
-    # --- Step 2: Configure FFMPEG path for MoviePy ---
+    # --- Step 2: Configure FFMPEG path and Audio Backend ---
     if ffmpeg_path:
         logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
         change_settings({"FFMPEG_BINARY": ffmpeg_path})
-    else:
-        logger.warning("No specific ffmpeg path received. Relying on system PATH.")
-        
-    # --- Step 3: THE DEFINITIVE FIX - Set Audio Backend ---
-    # In a bundled app, torchaudio can mistakenly try to use the 'sox' backend,
-    # which requires an external 'sox' command-line tool. This causes an [Errno 2].
-    # By explicitly setting the backend to 'soundfile' (a pure Python library),
-    # we ensure torchaudio can always load audio files reliably.
     try:
         torchaudio.set_audio_backend("soundfile")
-        logger.info(f"Successfully set torchaudio backend to 'soundfile'.")
+        logger.info("Successfully set torchaudio backend to 'soundfile'.")
     except Exception as e:
         logger.error(f"Failed to set torchaudio backend: {e}")
 
     try:
         def progress_callback(message, percentage=None):
-            if percentage is not None:
-                queue.put((constants.MSG_TYPE_PROGRESS, percentage))
-            if message:
-                queue.put((constants.MSG_TYPE_STATUS, message))
+            if percentage is not None: queue.put((constants.MSG_TYPE_PROGRESS, percentage))
+            if message: queue.put((constants.MSG_TYPE_STATUS, message))
 
         def _map_ui_model_key_to_whisper_name(ui_model_key: str) -> str:
             mapping = {"tiny": "tiny", "base": "base", "small": "small", "medium": "medium", "large (recommended)": "large", "turbo": "small"}
@@ -118,40 +108,34 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                 
                 result = audio_processor.process_audio(audio_to_process)
                 result.source_file = file_path
-
-                if result.status == constants.STATUS_SUCCESS:
-                    model_name_key = options["model_key"].split(" ")[0]
-                    base_name, _ = os.path.splitext(os.path.basename(file_path))
-                    output_filename = f"{base_name}_{model_name_key}_transcription.txt"
-                    
-                    if total_files > 1 and dest_folder:
-                        save_path = os.path.join(dest_folder, output_filename)
-                        AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output)
-                        result.output_path = save_path
-                        progress_callback(f"Saved to {os.path.basename(save_path)}", 100)
-                
                 all_results.append(result)
 
+            # --- THE DEFINITIVE DIAGNOSTIC STEP ---
             except Exception as e:
-                logger.exception(f"An error occurred in the worker process for file: {file_path}.")
-                error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=f"Failed to process {current_file_display_name}: {e}")
+                # Format the full traceback into a string
+                full_traceback = traceback.format_exc()
+                error_message_with_traceback = f"Failed to process {current_file_display_name}:\n\n{full_traceback}"
+                logger.error(f"Captured full traceback for {current_file_display_name}:\n{full_traceback}")
+                
+                # Send this full message back to the GUI
+                error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=error_message_with_traceback)
                 error_result.source_file = file_path
                 all_results.append(error_result)
+            # --- END DIAGNOSTIC STEP ---
             
             finally:
                 if is_temp_file_used and temp_audio_path and os.path.exists(temp_audio_path):
                     try:
                         os.remove(temp_audio_path)
-                        logger.info(f"Successfully cleaned up temporary audio file: {temp_audio_path}")
-                    except OSError as e:
-                        logger.error(f"Failed to remove temporary file {temp_audio_path}: {e}")
+                    except OSError:
+                        pass
         
         final_payload = {constants.KEY_BATCH_ALL_RESULTS: all_results}
         queue.put((constants.MSG_TYPE_BATCH_COMPLETED, final_payload))
 
-    except Exception as e:
-        logger.exception("A critical unhandled error occurred at the top level of the worker process.")
-        error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=str(e))
-        if 'all_results' not in locals() or not all_results:
-             all_results = [error_result]
-        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: all_results}))
+    except Exception:
+        # Catch errors even from the main setup of the worker
+        full_traceback = traceback.format_exc()
+        logger.error(f"A critical unhandled error occurred at the top level of the worker process:\n{full_traceback}")
+        error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=full_traceback)
+        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]}))
