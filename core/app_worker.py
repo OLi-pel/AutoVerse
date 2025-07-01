@@ -1,32 +1,31 @@
 # core/app_worker.py
 import logging
 import os
-import sys # <-- Import sys
+import sys
 import tempfile
 from moviepy.editor import VideoFileClip
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
-# --- MOVIEPY/FFMPEG FIX FOR PACKAGED APPS ---
-# When the app is bundled by PyInstaller, this code runs. It explicitly
-# tells moviepy where to find the ffmpeg binary that was bundled
-# with the app. This is the most reliable way to ensure it's found
-# right when the worker process starts.
+# --- THE REAL FINAL FIX FOR FFMPEG ---
+# This code runs at the start of the worker process.
+# If it detects it's in a PyInstaller bundle, it explicitly tells
+# moviepy where the bundled ffmpeg binary is located.
 if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
     from moviepy.config import change_settings
-    # Get the path to the bundled 'bin' directory
-    bin_dir = os.path.join(sys._MEIPASS, 'bin')
-    # The full path to the ffmpeg executable
-    ffmpeg_path = os.path.join(bin_dir, 'ffmpeg')
-    # Set the FFMPEG_BINARY path for moviepy
+    # Determine the executable name based on OS
+    exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+    # Build the full path to the bundled ffmpeg
+    ffmpeg_path = os.path.join(sys._MEIPASS, 'bin', exe_name)
+    # Set the config for moviepy
     change_settings({"FFMPEG_BINARY": ffmpeg_path})
 # -----------------------------------------------
 
-# Set up logger for the worker
 logger = logging.getLogger(__name__)
 logger.propagate = False
 
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
+
 
 def _is_video_file(file_path):
     """Checks if a file is a video based on its extension."""
@@ -35,7 +34,9 @@ def _is_video_file(file_path):
 def _extract_audio(video_path):
     """Extracts audio from a video file and returns a temporary audio file path."""
     try:
+        # Now, this call is clean and will use the config we set above.
         video = VideoFileClip(video_path)
+        
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
             temp_path = temp_audio_file.name
         
@@ -46,10 +47,9 @@ def _extract_audio(video_path):
         logger.error(f"Failed to extract audio from {video_path}: {e}")
         raise
 
+# (The rest of the file remains unchanged from before)
+
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None):
-    """
-    This function runs in a separate process and handles processing.
-    """
     try:
         def progress_callback(message, percentage=None):
             if percentage is not None:

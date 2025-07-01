@@ -4,31 +4,20 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files
 
-# This spec file is designed to be cross-platform for Windows and macOS.
-
-# --- Platform-specific setup ---
-# This approach makes the spec file adaptable. The Windows runner will
-# bundle ffmpeg, while the macOS runner (using setup-ffmpeg) will not.
+# Determine the ffmpeg binary path based on the OS.
 if sys.platform == 'win32':
-    app_name = 'TranscriptionOli' # The .exe will be added automatically
-    runtime_hooks = ['win_pre_init_hook.py']
-    ffmpeg_binary_list = [('bin/ffmpeg.exe', 'bin')]
+    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg.exe')
 else:
-    app_name = 'TranscriptionOli'
-    runtime_hooks = []
-    ffmpeg_binary_list = [] # ffmpeg is found in the PATH on the GitHub runner
-
+    # For macOS and Linux
+    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
 
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
-    binaries=ffmpeg_binary_list,
+    binaries=[(ffmpeg_binary_path, 'bin')],
     datas=[
-        # Add the core UI and assets needed by the application
         ('ui/main_window.ui', 'ui'),
         ('assets', 'assets'),
-        
-        # Explicitly collect all data files from these key libraries
         *collect_data_files('lightning_fabric'),
         *collect_data_files('speechbrain'),
         *collect_data_files('pyannote')
@@ -40,7 +29,7 @@ a = Analysis(
     ],
     hookspath=['.'],
     hooksconfig={},
-    runtime_hooks=runtime_hooks,
+    runtime_hooks=[], # <-- THIS LINE IS NOW EMPTY
     excludes=[],
     noarchive=False
 )
@@ -51,7 +40,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name=app_name,
+    name='TranscriptionOli',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
