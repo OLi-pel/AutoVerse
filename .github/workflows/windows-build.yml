@@ -21,7 +21,6 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      # --- THE FIX: Download a valid, real .ico file ---
       - name: Create Valid Placeholder Icon
         run: |
           New-Item -ItemType Directory -Force -Path "assets"
@@ -32,7 +31,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "bin"
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile "ffmpeg.7z"
-          7z x ffmpeg.7z -offmpeg*
+          # --- THE FIX: Corrected the 7z command ---
+          7z x ffmpeg.7z
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
 
