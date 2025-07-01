@@ -298,7 +298,7 @@ def run_app():
                     if result.status == constants.STATUS_SUCCESS: successful_count += 1; summary.append(f"SUCCESS: '{file_name}' saved to '{os.path.basename(result.output_path)}'")
                     else: error_count += 1; summary.append(f"ERROR: '{file_name}' - {result.message}")
                  self.window.output_text_area.setPlainText("\n".join(summary))
-                 final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."; self.window.status_label.setText(final_status_msg); QMessageBox.information(self.window, "Batch Processing Complete", final_status_msg)
+                 final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."; self.window.status_label.setText(final_status_msg); QMessageBox.information(self.main_window, "Batch Processing Complete", final_status_msg)
             self.set_ui_for_processing(False)
         
         def prompt_and_save_single_result(self, result):
@@ -339,8 +339,14 @@ def run_app():
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    # This must be the very first line in the main entry point.
-    # It ensures that child processes are created with a clean slate.
+    # For packaged apps (PyInstaller), freeze_support() is essential.
+    # This must be the first call in the main entry point.
+    multiprocessing.freeze_support()
+    
+    # It is also good practice to set the start method explicitly,
+    # especially for cross-platform consistency. 'spawn' is the required
+    # method for macOS and Windows packaged apps.
     multiprocessing.set_start_method('spawn', force=True)
-    # Now that multiprocessing is configured, we can run our application setup.
+
+    # Now that multiprocessing is correctly configured, run the application.
     run_app()

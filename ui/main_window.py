@@ -39,7 +39,7 @@
          <bool>false</bool>
         </property>
         <property name="currentIndex">
-         <number>1</number>
+         <number>0</number>
         </property>
         <property name="usesScrollButtons">
          <bool>false</bool>
@@ -136,13 +136,6 @@
                      <widget class="QCheckBox" name="auto_merge_checkbutton">
                       <property name="text">
                        <string>Automatically Merge</string>
-                      </property>
-                     </widget>
-                    </item>
-                    <item>
-                     <widget class="QPushButton" name="pushButton">
-                      <property name="text">
-                       <string>PushButton</string>
                       </property>
                      </widget>
                     </item>
