@@ -7,7 +7,6 @@ on:
 
 jobs:
   build:
-    # Build natively on Apple Silicon for best performance
     runs-on: macos-14
 
     steps:
@@ -23,14 +22,13 @@ jobs:
       - name: Install build dependencies using Homebrew
         run: brew install portaudio
       
-      # --- THE DEFINITIVE FIX: Download a STATIC ffmpeg build ---
       - name: Download and prepare static FFmpeg
         run: |
           mkdir -p bin
-          # This URL points to a trusted source of static ffmpeg builds for macOS ARM64
           curl -L "https://www.osxexperts.net/ffmpeg61arm.zip" -o ffmpeg.zip
-          # The -j flag junk paths, extracts only the ffmpeg file
-          unzip -j ffmpeg.zip 'ffmpeg' -d bin/
+          # --- THE FIX ---
+          # Add the -o flag to unzip to overwrite without prompting
+          unzip -o -j ffmpeg.zip 'ffmpeg' -d bin/
 
       - name: Create Valid Placeholder Icon
         run: |
