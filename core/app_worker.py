@@ -3,9 +3,7 @@ import logging
 import os
 import sys
 import tempfile
-import traceback # <-- IMPORT TRACEBACK
 from moviepy.editor import VideoFileClip
-from moviepy.config import change_settings
 import torchaudio
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
@@ -33,7 +31,8 @@ def _extract_audio(video_path):
 
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
     """
-    This function runs in a separate process and now provides full error tracebacks.
+    This is the definitive worker function. It modifies the PATH for the entire process,
+    making ffmpeg globally available to all libraries.
     """
     # --- Step 1: Worker-Specific Logging Setup ---
     log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
@@ -45,16 +44,25 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
     logger.addHandler(file_handler)
     logger.setLevel(constants.ACTIVE_LOG_LEVEL)
 
-    # --- Step 2: Configure FFMPEG path and Audio Backend ---
-    if ffmpeg_path:
+    # --- Step 2: THE GLOBAL FFMPEG & AUDIO BACKEND FIX ---
+    if ffmpeg_path and os.path.exists(ffmpeg_path):
         logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
-        change_settings({"FFMPEG_BINARY": ffmpeg_path})
+        # Get the directory containing the ffmpeg binary
+        bin_dir = os.path.dirname(ffmpeg_path)
+        # Prepend this directory to the process's PATH environment variable.
+        # This makes the bundled ffmpeg discoverable by ANY library (moviepy, whisper, etc.)
+        os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
+        logger.info(f"Worker PATH has been set to: {os.environ['PATH']}")
+    else:
+        logger.warning("No specific ffmpeg path received or path does not exist.")
+        
     try:
         torchaudio.set_audio_backend("soundfile")
         logger.info("Successfully set torchaudio backend to 'soundfile'.")
     except Exception as e:
         logger.error(f"Failed to set torchaudio backend: {e}")
-
+    # --- END GLOBAL FIX ---
+    
     try:
         def progress_callback(message, percentage=None):
             if percentage is not None: queue.put((constants.MSG_TYPE_PROGRESS, percentage))
@@ -70,72 +78,53 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
         }
         
         audio_processor = AudioProcessor(
-            config=processor_config,
-            progress_callback=progress_callback,
-            enable_diarization=options['enable_diarization'],
-            include_timestamps=options['include_timestamps'],
-            include_end_times=options['include_end_times'],
-            enable_auto_merge=options['auto_merge'],
+            config=processor_config, progress_callback=progress_callback,
+            enable_diarization=options['enable_diarization'], include_timestamps=options['include_timestamps'],
+            include_end_times=options['include_end_times'], enable_auto_merge=options['auto_merge'],
             cache_dir=cache_dir
         )
         
         all_results = []
-        total_files = len(file_paths)
-
         for idx, file_path in enumerate(file_paths):
-            current_file_display_name = os.path.basename(file_path)
             queue.put((constants.MSG_TYPE_BATCH_FILE_START, {
-                constants.KEY_BATCH_FILENAME: current_file_display_name,
-                constants.KEY_BATCH_CURRENT_IDX: idx + 1,
-                constants.KEY_BATCH_TOTAL_FILES: total_files
+                'filename': os.path.basename(file_path),
+                'current_idx': idx + 1,
+                'total_files': len(file_paths)
             }))
             
-            audio_to_process = None
+            audio_to_process = file_path
             temp_audio_path = None
-            is_temp_file_used = False
-
             try:
                 if _is_video_file(file_path):
-                    progress_callback(f"Extracting audio from {current_file_display_name}...", 0)
+                    progress_callback(f"Extracting audio...", 0)
                     temp_audio_path = _extract_audio(file_path)
                     audio_to_process = temp_audio_path
-                    is_temp_file_used = True
-                else:
-                    audio_to_process = file_path
 
-                if not audio_to_process:
-                     raise ValueError("Could not determine audio source for processing.")
-                
                 result = audio_processor.process_audio(audio_to_process)
                 result.source_file = file_path
+
+                if result.status == constants.STATUS_SUCCESS and len(file_paths) > 1 and dest_folder:
+                    model_name_key = options["model_key"].split(" ")[0]
+                    base_name, _ = os.path.splitext(os.path.basename(file_path))
+                    output_filename = f"{base_name}_{model_name_key}_transcription.txt"
+                    save_path = os.path.join(dest_folder, output_filename)
+                    AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output)
+                    result.output_path = save_path
                 all_results.append(result)
 
-            # --- THE DEFINITIVE DIAGNOSTIC STEP ---
             except Exception as e:
-                # Format the full traceback into a string
                 full_traceback = traceback.format_exc()
-                error_message_with_traceback = f"Failed to process {current_file_display_name}:\n\n{full_traceback}"
-                logger.error(f"Captured full traceback for {current_file_display_name}:\n{full_traceback}")
-                
-                # Send this full message back to the GUI
-                error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=error_message_with_traceback)
-                error_result.source_file = file_path
-                all_results.append(error_result)
-            # --- END DIAGNOSTIC STEP ---
+                error_msg = f"Failed to process {os.path.basename(file_path)}:\n{full_traceback}"
+                logger.error(f"Captured full traceback:\n{full_traceback}")
+                all_results.append(ProcessedAudioResult(status=constants.STATUS_ERROR, message=error_msg, source_file=file_path))
             
             finally:
-                if is_temp_file_used and temp_audio_path and os.path.exists(temp_audio_path):
-                    try:
-                        os.remove(temp_audio_path)
-                    except OSError:
-                        pass
+                if temp_audio_path and os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
         
-        final_payload = {constants.KEY_BATCH_ALL_RESULTS: all_results}
-        queue.put((constants.MSG_TYPE_BATCH_COMPLETED, final_payload))
+        queue.put((constants.MSG_TYPE_BATCH_COMPLETED, {'all_results': all_results}))
 
     except Exception:
-        # Catch errors even from the main setup of the worker
         full_traceback = traceback.format_exc()
-        logger.error(f"A critical unhandled error occurred at the top level of the worker process:\n{full_traceback}")
-        error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=full_traceback)
-        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]}))
+        logger.error(f"Critical unhandled error in worker:\n{full_traceback}")
+        queue.put(('finished', {'all_results': [ProcessedAudioResult(status=constants.STATUS_ERROR, message=full_traceback)]}))
