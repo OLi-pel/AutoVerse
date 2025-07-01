@@ -1,16 +1,31 @@
 # core/app_worker.py
 import logging
 import os
+import sys # <-- Import sys
 import tempfile
 from moviepy.editor import VideoFileClip
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
+# --- MOVIEPY/FFMPEG FIX FOR PACKAGED APPS ---
+# When the app is bundled by PyInstaller, this code runs. It explicitly
+# tells moviepy where to find the ffmpeg binary that was bundled
+# with the app. This is the most reliable way to ensure it's found
+# right when the worker process starts.
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    from moviepy.config import change_settings
+    # Get the path to the bundled 'bin' directory
+    bin_dir = os.path.join(sys._MEIPASS, 'bin')
+    # The full path to the ffmpeg executable
+    ffmpeg_path = os.path.join(bin_dir, 'ffmpeg')
+    # Set the FFMPEG_BINARY path for moviepy
+    change_settings({"FFMPEG_BINARY": ffmpeg_path})
+# -----------------------------------------------
+
 # Set up logger for the worker
 logger = logging.getLogger(__name__)
-logger.propagate = False  # Prevent double logging in the main process console
+logger.propagate = False
 
-# List of common video file extensions
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
 
 def _is_video_file(file_path):
@@ -21,7 +36,6 @@ def _extract_audio(video_path):
     """Extracts audio from a video file and returns a temporary audio file path."""
     try:
         video = VideoFileClip(video_path)
-        # Create a temporary file with a .wav extension
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
             temp_path = temp_audio_file.name
         
@@ -30,23 +44,20 @@ def _extract_audio(video_path):
         return temp_path
     except Exception as e:
         logger.error(f"Failed to extract audio from {video_path}: {e}")
-        raise # Re-raise the exception to be caught by the main worker loop
+        raise
 
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None):
     """
-    This function runs in a separate process and communicates via a queue.
-    Handles both single and batch processing, including audio extraction from video.
+    This function runs in a separate process and handles processing.
     """
     try:
         def progress_callback(message, percentage=None):
             if percentage is not None:
-                # For batch, this will be per-file progress
                 queue.put((constants.MSG_TYPE_PROGRESS, percentage))
             if message:
                 queue.put((constants.MSG_TYPE_STATUS, message))
 
         def _map_ui_model_key_to_whisper_name(ui_model_key: str) -> str:
-            # ... (mapping is the same)
             mapping = {"tiny": "tiny", "base": "base", "small": "small", "medium": "medium", "large (recommended)": "large", "turbo": "small"}
             return mapping.get(ui_model_key, "large")
 
@@ -93,19 +104,17 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                      raise ValueError("Could not determine audio source for processing.")
                 
                 result = audio_processor.process_audio(audio_to_process)
-                result.source_file = file_path # Add original source path to result for context
+                result.source_file = file_path
 
-                # If processing was successful, determine save path
                 if result.status == constants.STATUS_SUCCESS:
                     model_name_key = options["model_key"].split(" ")[0]
                     base_name, _ = os.path.splitext(os.path.basename(file_path))
                     output_filename = f"{base_name}_{model_name_key}_transcription.txt"
                     
-                    # If batch processing, save to the destination folder immediately
                     if total_files > 1 and dest_folder:
                         save_path = os.path.join(dest_folder, output_filename)
                         AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output)
-                        result.output_path = save_path # Store where it was saved
+                        result.output_path = save_path
                         progress_callback(f"Saved to {os.path.basename(save_path)}", 100)
                 
                 all_results.append(result)
@@ -124,11 +133,10 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                     except OSError as e:
                         logger.error(f"Failed to remove temporary file {temp_audio_path}: {e}")
         
-        # Signal that the entire batch is complete
         final_payload = {constants.KEY_BATCH_ALL_RESULTS: all_results}
         queue.put((constants.MSG_TYPE_BATCH_COMPLETED, final_payload))
 
     except Exception as e:
         logger.exception("A critical unhandled error occurred in the worker process.")
         error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=str(e))
-        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]})) # Send as a batch result
+        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]}))
