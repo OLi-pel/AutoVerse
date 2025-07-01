@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+z# -*- mode: python ; coding: utf-8 -*-
 
 import sys
 import os
@@ -11,25 +11,32 @@ else:
     # For macOS and Linux
     ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
 
+# --- THE DEFINITIVE FIX ---
+# Collect all non-code data files from these critical libraries.
+# This ensures that vocabularies, tokenizers, and model configs are bundled.
+datas = [
+    ('ui/main_window.ui', 'ui'),
+    ('assets', 'assets'),
+    *collect_data_files('lightning_fabric'),
+    *collect_data_files('speechbrain'),
+    *collect_data_files('pyannote'),
+    *collect_data_files('tiktoken'),     # <--- ADD THIS
+    *collect_data_files('transformers')  # <--- ADD THIS
+]
+
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
     binaries=[(ffmpeg_binary_path, 'bin')],
-    datas=[
-        ('ui/main_window.ui', 'ui'),
-        ('assets', 'assets'),
-        *collect_data_files('lightning_fabric'),
-        *collect_data_files('speechbrain'),
-        *collect_data_files('pyannote')
-    ],
+    datas=datas,  # <--- Use the new datas list
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
         'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
-        'moviepy', 'PySide6', 'lightning_fabric',
+        'moviepy', 'PySide6', 'lightning_fabric', 'transformers'
     ],
     hookspath=['.'],
     hooksconfig={},
-    runtime_hooks=[], # <-- THIS LINE IS NOW EMPTY
+    runtime_hooks=[],
     excludes=[],
     noarchive=False
 )
