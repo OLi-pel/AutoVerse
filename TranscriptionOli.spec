@@ -4,22 +4,31 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files
 
-# --- Unified Configuration ---
-# This spec file is now fully cross-platform for Windows and macOS.
+# This spec file is designed to be cross-platform for Windows and macOS.
 
-# Define platform-specific binaries
+# --- Platform-specific setup ---
+# This approach makes the spec file adaptable. The Windows runner will
+# bundle ffmpeg, while the macOS runner (using setup-ffmpeg) will not.
 if sys.platform == 'win32':
-    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg.exe')
+    app_name = 'TranscriptionOli' # The .exe will be added automatically
+    runtime_hooks = ['win_pre_init_hook.py']
+    ffmpeg_binary_list = [('bin/ffmpeg.exe', 'bin')]
 else:
-    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
+    app_name = 'TranscriptionOli'
+    runtime_hooks = []
+    ffmpeg_binary_list = [] # ffmpeg is found in the PATH on the GitHub runner
+
 
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
-    binaries=[(ffmpeg_binary_path, 'bin')], # Bundle ffmpeg for all platforms
+    binaries=ffmpeg_binary_list,
     datas=[
+        # Add the core UI and assets needed by the application
         ('ui/main_window.ui', 'ui'),
         ('assets', 'assets'),
+        
+        # Explicitly collect all data files from these key libraries
         *collect_data_files('lightning_fabric'),
         *collect_data_files('speechbrain'),
         *collect_data_files('pyannote')
@@ -31,7 +40,7 @@ a = Analysis(
     ],
     hookspath=['.'],
     hooksconfig={},
-    runtime_hooks=['runtime_hook.py'], # Use the unified hook for all platforms
+    runtime_hooks=runtime_hooks,
     excludes=[],
     noarchive=False
 )
@@ -42,7 +51,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='TranscriptionOli',
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -52,7 +61,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # Use an inline if to select the correct icon format
     icon=os.path.join('assets', 'logo.icns' if sys.platform == 'darwin' else 'logo.ico')
 )
 coll = COLLECT(

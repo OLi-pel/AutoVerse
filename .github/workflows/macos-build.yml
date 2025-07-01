@@ -26,21 +26,14 @@ jobs:
       - name: Install PortAudio
         run: brew install portaudio
 
+      # --- THE NEW, ROBUST FIX: Use a dedicated setup-ffmpeg action ---
+      - name: Set up FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
       - name: Create Valid Placeholder Icon
         run: |
           mkdir -p assets
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
-
-      # --- CORRECTED: Download and prepare FFmpeg ---
-      - name: Download and prepare FFmpeg
-        run: |
-          mkdir -p bin
-          # Using a stable 'latest' release from the yt-dlp/FFmpeg-Builds project, which is reliable.
-          # The -L flag is crucial to follow the redirect from the 'latest' tag.
-          curl -L "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos-x86_64.zip" -o ffmpeg.zip
-          unzip ffmpeg.zip
-          # The ffmpeg binary is at the root of this specific zip archive.
-          mv ffmpeg bin/ffmpeg
 
       - name: Install dependencies
         run: |
