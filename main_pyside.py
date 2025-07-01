@@ -8,12 +8,19 @@ from queue import Empty
 # QApplication must be imported here for the app instance to be created.
 from PySide6.QtWidgets import QApplication
 
+# --- NEW HELPER FUNCTION ---
+def _get_bundled_ffmpeg_path():
+    """Checks if the app is a PyInstaller bundle and returns the path to ffmpeg."""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+        return os.path.join(sys._MEIPASS, 'bin', exe_name)
+    return None # Return None if not bundled
+
+
 def run_app():
     """
-    Contains all application logic and imports to ensure the global
-    scope is clean for multiprocessing spawns on macOS and Windows.
+    Contains all application logic and imports.
     """
-    # Defer all other imports until after multiprocessing is initialized
     from PySide6.QtCore import QObject, Slot, QTimer
     from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
@@ -27,8 +34,6 @@ def run_app():
     from core.audio_processor import AudioProcessor
     from ui.selectable_text_edit import SelectableTextEdit
 
-    # Setup logging as the first action within the app function.
-    # Child processes will not run this, so logging will only be configured once.
     setup_logging()
     logger = logging.getLogger(__name__)
 
@@ -40,7 +45,6 @@ def run_app():
             loader = QUiLoader()
             loader.registerCustomWidget(SelectableTextEdit)
 
-            # Determine path to UI file safely for bundled app
             base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             ui_file_path = os.path.join(base_path, "ui", "main_window.ui")
             
@@ -229,21 +233,27 @@ def run_app():
 
         @Slot()
         def start_or_abort_processing(self):
-            from PySide6.QtWidgets import QFileDialog, QMessageBox
-            from core.app_worker import processing_worker_function
-
             if self.is_processing and self.process:
-                if self.process.is_alive(): self.process.terminate(); self.process.join(timeout=1)
-                self.timer.stop(); self.process = None; self.window.status_label.setText("Processing aborted by user.")
-                self.window.progress_bar.setValue(0); self.set_ui_for_processing(False); return
+                if self.process.is_alive():
+                    self.process.terminate()
+                    self.process.join(timeout=1)
+                self.timer.stop()
+                self.process = None
+                self.window.status_label.setText("Processing aborted by user.")
+                self.window.progress_bar.setValue(0)
+                self.set_ui_for_processing(False)
+                return
 
             if not self.audio_file_paths:
-                QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first."); return
+                QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
+                return
 
             destination_folder = None
             if len(self.audio_file_paths) > 1:
                 destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder for Transcriptions")
-                if not destination_folder: self.window.status_label.setText("Batch processing cancelled."); return
+                if not destination_folder:
+                    self.window.status_label.setText("Batch processing cancelled.")
+                    return
 
             self.set_ui_for_processing(True)
             self.window.progress_bar.setValue(0)
@@ -252,101 +262,126 @@ def run_app():
             options = self.get_processing_options()
             cache_dir = os.path.join(os.path.expanduser('~'), 'TranscriptionOli_Cache')
             
+            # --- MODIFIED: Get ffmpeg path in main process ---
+            ffmpeg_path = _get_bundled_ffmpeg_path()
+            if ffmpeg_path:
+                logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
+
             self.queue = multiprocessing.Queue()
             self.process = multiprocessing.Process(
                 target=processing_worker_function, 
-                args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder), daemon=True
+                # --- MODIFIED: Pass ffmpeg_path to the worker ---
+                args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder, ffmpeg_path), 
+                daemon=True
             )
             self.process.start()
             self.timer.start(100)
 
         def check_queue(self):
-            from utils import constants
-            from PySide6.QtWidgets import QMessageBox
             try:
                 msg_type, data = self.queue.get_nowait()
-                if msg_type == constants.MSG_TYPE_PROGRESS: self.window.progress_bar.setValue(data)
-                elif msg_type == constants.MSG_TYPE_STATUS: self.window.status_label.setText(data)
+                if msg_type == constants.MSG_TYPE_PROGRESS:
+                    self.window.progress_bar.setValue(data)
+                elif msg_type == constants.MSG_TYPE_STATUS:
+                    self.window.status_label.setText(data)
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
-                    file_info = data; self.window.status_label.setText(f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"); self.window.progress_bar.setValue(0)
+                    file_info = data
+                    status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
+                    self.window.status_label.setText(status)
+                    self.window.progress_bar.setValue(0)
                 elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED:
                     self.timer.stop()
-                    if self.process: self.process.join(); self.process = None
+                    if self.process:
+                        self.process.join()
+                        self.process = None
                     self.handle_batch_results(data)
             
             except Empty:
                 if self.is_processing and (not self.process or not self.process.is_alive()):
-                    self.timer.stop(); self.process = None; self.set_ui_for_processing(False)
-                    if self.window.status_label.text() != "Processing aborted by user.":
+                    self.timer.stop()
+                    self.process = None
+                    self.set_ui_for_processing(False)
+                    if "aborted" not in self.window.status_label.text():
                         QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
 
         def handle_batch_results(self, final_payload):
-            from utils import constants
-            from PySide6.QtWidgets import QMessageBox
-            results = final_payload[constants.KEY_BATCH_ALL_RESULTS]; summary = []; successful_count = 0; error_count = 0
+            results = final_payload[constants.KEY_BATCH_ALL_RESULTS]
+            summary = []
+            successful_count = 0
+            error_count = 0
             
             if len(results) == 1:
-                 result = results[0]; self.window.progress_bar.setValue(100)
-                 if result.status == constants.STATUS_SUCCESS:
-                    output_text = "\n".join(result.data) if isinstance(result.data, list) else str(result.data); self.window.output_text_area.setPlainText(output_text); self.prompt_and_save_single_result(result)
-                 else:
-                    msg = result.message or "An unknown error occurred."; self.window.status_label.setText(f"Error: {msg[:100]}..."); self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}"); QMessageBox.critical(self.window, "Processing Error", msg)
+                result = results[0]
+                self.window.progress_bar.setValue(100)
+                if result.status == constants.STATUS_SUCCESS:
+                    output_text = "\n".join(result.data) if isinstance(result.data, list) else str(result.data)
+                    self.window.output_text_area.setPlainText(output_text)
+                    self.prompt_and_save_single_result(result)
+                else:
+                    msg = result.message or "An unknown error occurred."
+                    self.window.status_label.setText(f"Error: {msg[:100]}...")
+                    self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}")
+                    QMessageBox.critical(self.window, "Processing Error", msg)
             else: 
-                 for result in results:
+                for result in results:
                     file_name = os.path.basename(result.source_file)
-                    if result.status == constants.STATUS_SUCCESS: successful_count += 1; summary.append(f"SUCCESS: '{file_name}' saved to '{os.path.basename(result.output_path)}'")
-                    else: error_count += 1; summary.append(f"ERROR: '{file_name}' - {result.message}")
-                 self.window.output_text_area.setPlainText("\n".join(summary))
-                 final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."; self.window.status_label.setText(final_status_msg); QMessageBox.information(self.main_window, "Batch Processing Complete", final_status_msg)
+                    if result.status == constants.STATUS_SUCCESS:
+                        successful_count += 1
+                        summary.append(f"SUCCESS: '{file_name}' saved to '{os.path.basename(result.output_path)}'")
+                    else:
+                        error_count += 1
+                        summary.append(f"ERROR: '{file_name}' - {result.message}")
+                self.window.output_text_area.setPlainText("\n".join(summary))
+                final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."
+                self.window.status_label.setText(final_status_msg)
+                QMessageBox.information(self.window, "Batch Processing Complete", final_status_msg)
+            
             self.set_ui_for_processing(False)
         
         def prompt_and_save_single_result(self, result):
-            from core.audio_processor import AudioProcessor
-            from PySide6.QtWidgets import QFileDialog, QMessageBox
             if hasattr(result, 'output_path') and result.output_path:
-                 self.last_single_file_result_path = result.output_path; self.window.correction_button.setEnabled(True); self.window.status_label.setText(f"Transcription saved to {os.path.basename(result.output_path)}"); return
+                self.last_single_file_result_path = result.output_path
+                self.window.correction_button.setEnabled(True)
+                self.window.status_label.setText(f"Transcription saved to {os.path.basename(result.output_path)}")
+                return
 
-            base_name, _ = os.path.splitext(os.path.basename(result.source_file)); model_name = self.get_processing_options()["model_key"].split(" ")[0]
+            base_name, _ = os.path.splitext(os.path.basename(result.source_file))
+            model_name = self.get_processing_options()["model_key"].split(" ")[0]
             default_fn = os.path.join(os.getcwd(), f"{base_name}_{model_name}_transcription.txt")
             save_path, _ = QFileDialog.getSaveFileName(self.window, "Save Transcription As", default_fn, "Text Files (*.txt)")
             
             if save_path:
                 try:
-                    AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output); self.window.status_label.setText(f"Transcription saved to {os.path.basename(save_path)}"); QMessageBox.information(self.window, "Success", f"Transcription saved to {save_path}")
-                    self.last_single_file_result_path = save_path; self.window.correction_button.setEnabled(True)
+                    AudioProcessor.save_to_txt(save_path, result.data, result.is_plain_text_output)
+                    self.window.status_label.setText(f"Transcription saved to {os.path.basename(save_path)}")
+                    QMessageBox.information(self.window, "Success", f"Transcription saved to {save_path}")
+                    self.last_single_file_result_path = save_path
+                    self.window.correction_button.setEnabled(True)
                 except Exception as e:
-                    QMessageBox.critical(self.window, "Save Error", f"Could not save file: {e}"); self.window.correction_button.setEnabled(False)
+                    QMessageBox.critical(self.window, "Save Error", f"Could not save file: {e}")
+                    self.window.correction_button.setEnabled(False)
             else:
-                self.window.status_label.setText("Save cancelled by user."); self.window.correction_button.setEnabled(False)
+                self.window.status_label.setText("Save cancelled by user.")
+                self.window.correction_button.setEnabled(False)
 
         @Slot()
         def go_to_correction(self):
-            from PySide6.QtWidgets import QMessageBox
             if not self.last_single_file_result_path or not self.audio_file_paths:
-                QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths."); return
+                QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths.")
+                return
                 
-            audio_path = self.audio_file_paths[0]; txt_path = self.last_single_file_result_path
+            audio_path = self.audio_file_paths[0]
+            txt_path = self.last_single_file_result_path
             self.correction_logic.load_files_from_paths(audio_path=audio_path, txt_path=txt_path)
             self.window.main_tab_widget.setCurrentIndex(1)
 
     # --- Start of main execution ---
-    # Create the application instance first
     app = QApplication(sys.argv)
-    # Instantiate the main application logic
     main_app = MainApplication(app)
-    # Execute the application's event loop
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    # For packaged apps (PyInstaller), freeze_support() is essential.
-    # This must be the first call in the main entry point.
     multiprocessing.freeze_support()
-    
-    # It is also good practice to set the start method explicitly,
-    # especially for cross-platform consistency. 'spawn' is the required
-    # method for macOS and Windows packaged apps.
     multiprocessing.set_start_method('spawn', force=True)
-
-    # Now that multiprocessing is correctly configured, run the application.
     run_app()

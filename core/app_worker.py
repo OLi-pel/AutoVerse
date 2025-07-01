@@ -4,37 +4,25 @@ import os
 import sys
 import tempfile
 from moviepy.editor import VideoFileClip
+from moviepy.config import change_settings # Import at module level
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
-# --- THE REAL FINAL FIX FOR FFMPEG ---
-# This code runs at the start of the worker process.
-# If it detects it's in a PyInstaller bundle, it explicitly tells
-# moviepy where the bundled ffmpeg binary is located.
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    from moviepy.config import change_settings
-    # Determine the executable name based on OS
-    exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
-    # Build the full path to the bundled ffmpeg
-    ffmpeg_path = os.path.join(sys._MEIPASS, 'bin', exe_name)
-    # Set the config for moviepy
-    change_settings({"FFMPEG_BINARY": ffmpeg_path})
-# -----------------------------------------------
-
+# Set up a logger specifically for this worker. This is crucial for debugging.
 logger = logging.getLogger(__name__)
-logger.propagate = False
 
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
-
 
 def _is_video_file(file_path):
     """Checks if a file is a video based on its extension."""
     return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
 
 def _extract_audio(video_path):
-    """Extracts audio from a video file and returns a temporary audio file path."""
+    """
+    Extracts audio from a video file and returns a temporary audio file path.
+    This now assumes that the moviepy config has been set by the main worker function.
+    """
     try:
-        # Now, this call is clean and will use the config we set above.
         video = VideoFileClip(video_path)
         
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
@@ -43,13 +31,39 @@ def _extract_audio(video_path):
         video.audio.write_audiofile(temp_path, codec='pcm_s16le')
         logger.info(f"Successfully extracted audio from {video_path} to {temp_path}")
         return temp_path
+        
     except Exception as e:
         logger.error(f"Failed to extract audio from {video_path}: {e}")
         raise
 
-# (The rest of the file remains unchanged from before)
+# --- MODIFIED FUNCTION SIGNATURE ---
+def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
+    """
+    This function runs in a separate process. It now configures its own logging
+    and uses the ffmpeg_path provided by the main process.
+    """
+    # --- WORKER-SPECIFIC LOGGING SETUP ---
+    # Since this is a new process, we must configure logging again.
+    # We can log to a separate file for clarity.
+    log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file_path = os.path.join(log_dir, "worker.log")
+    
+    # Configure the logger for this process
+    file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
+    formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.setLevel(constants.ACTIVE_LOG_LEVEL)
 
-def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None):
+    # --- THE DEFINITIVE FFMPEG FIX ---
+    # If a specific path was passed from the main process, set it for moviepy.
+    if ffmpeg_path:
+        logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
+        change_settings({"FFMPEG_BINARY": ffmpeg_path})
+    else:
+        logger.warning("No specific ffmpeg path received. Relying on system PATH.")
+
     try:
         def progress_callback(message, percentage=None):
             if percentage is not None:
@@ -137,6 +151,9 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
         queue.put((constants.MSG_TYPE_BATCH_COMPLETED, final_payload))
 
     except Exception as e:
-        logger.exception("A critical unhandled error occurred in the worker process.")
+        logger.exception("A critical unhandled error occurred at the top level of the worker process.")
         error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=str(e))
-        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: [error_result]}))
+        # Ensure at least one result is sent back on catastrophic failure
+        if 'all_results' not in locals() or not all_results:
+             all_results = [error_result]
+        queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: all_results}))
