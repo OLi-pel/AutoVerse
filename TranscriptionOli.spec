@@ -4,53 +4,34 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files
 
-# This spec file is designed to be cross-platform for Windows and macOS.
+# --- Unified Configuration ---
+# This spec file is now fully cross-platform for Windows and macOS.
 
-# --- Platform-specific setup ---
+# Define platform-specific binaries
 if sys.platform == 'win32':
-    app_name = 'TranscriptionOli' # The .exe will be added automatically
-    runtime_hooks = ['win_pre_init_hook.py']
-    ffmpeg_binary = [('bin/ffmpeg.exe', 'bin')]
+    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg.exe')
 else:
-    app_name = 'TranscriptionOli'
-    runtime_hooks = []
-    ffmpeg_binary = []
-
+    ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
 
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
-    binaries=ffmpeg_binary,
+    binaries=[(ffmpeg_binary_path, 'bin')], # Bundle ffmpeg for all platforms
     datas=[
-        # Add the core UI and assets needed by the application
         ('ui/main_window.ui', 'ui'),
         ('assets', 'assets'),
-        
-        # --- THE FIX ---
-        # Explicitly collect all data files from these key libraries
-        # This solves the `lightning_fabric/version.info` not found error.
         *collect_data_files('lightning_fabric'),
         *collect_data_files('speechbrain'),
         *collect_data_files('pyannote')
     ],
     hiddenimports=[
-        'torch',
-        'torchaudio',
-        'soundfile',
-        'pyaudio',
-        'speechbrain',
-        'pyannote.audio',
-        'pandas',
-        'sklearn',
-        'tiktoken',
-        'scipy',
-        'moviepy',
-        'PySide6',
-        'lightning_fabric',
+        'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
+        'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
+        'moviepy', 'PySide6', 'lightning_fabric',
     ],
     hookspath=['.'],
     hooksconfig={},
-    runtime_hooks=runtime_hooks,
+    runtime_hooks=['runtime_hook.py'], # Use the unified hook for all platforms
     excludes=[],
     noarchive=False
 )
@@ -61,7 +42,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name=app_name,
+    name='TranscriptionOli',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -71,6 +52,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # Use an inline if to select the correct icon format
     icon=os.path.join('assets', 'logo.icns' if sys.platform == 'darwin' else 'logo.ico')
 )
 coll = COLLECT(

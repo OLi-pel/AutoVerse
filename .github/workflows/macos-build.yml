@@ -26,13 +26,18 @@ jobs:
       - name: Install PortAudio
         run: brew install portaudio
 
-      # --- THE FIX: Download a valid, real .icns file ---
       - name: Create Valid Placeholder Icon
         run: |
           mkdir -p assets
-          # Download the default PyInstaller icon, which is known to be valid
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
 
+      # --- NEW: Download and prepare FFmpeg ---
+      - name: Download and prepare FFmpeg
+        run: |
+          mkdir -p bin
+          curl -L "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n5.1-latest-macos64-gpl-5.1.zip" -o ffmpeg.zip
+          unzip ffmpeg.zip
+          mv ffmpeg-n5.1-latest-macos64-gpl-5.1/bin/ffmpeg bin/ffmpeg
 
       - name: Install dependencies
         run: |
