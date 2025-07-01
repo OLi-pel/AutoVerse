@@ -4,11 +4,11 @@ import os
 import sys
 import tempfile
 from moviepy.editor import VideoFileClip
-from moviepy.config import change_settings # Import at module level
+from moviepy.config import change_settings
+import torchaudio # <-- Import torchaudio
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 from utils import constants
 
-# Set up a logger specifically for this worker. This is crucial for debugging.
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
@@ -18,51 +18,50 @@ def _is_video_file(file_path):
     return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
 
 def _extract_audio(video_path):
-    """
-    Extracts audio from a video file and returns a temporary audio file path.
-    This now assumes that the moviepy config has been set by the main worker function.
-    """
+    """Extracts audio from a video file."""
     try:
         video = VideoFileClip(video_path)
-        
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
             temp_path = temp_audio_file.name
-        
         video.audio.write_audiofile(temp_path, codec='pcm_s16le')
         logger.info(f"Successfully extracted audio from {video_path} to {temp_path}")
         return temp_path
-        
     except Exception as e:
         logger.error(f"Failed to extract audio from {video_path}: {e}")
         raise
 
-# --- MODIFIED FUNCTION SIGNATURE ---
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
     """
-    This function runs in a separate process. It now configures its own logging
-    and uses the ffmpeg_path provided by the main process.
+    This function runs in a separate process. It configures its own logging,
+    ffmpeg path, and now the torchaudio backend.
     """
-    # --- WORKER-SPECIFIC LOGGING SETUP ---
-    # Since this is a new process, we must configure logging again.
-    # We can log to a separate file for clarity.
+    # --- Step 1: Worker-Specific Logging Setup ---
     log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)
     log_file_path = os.path.join(log_dir, "worker.log")
-    
-    # Configure the logger for this process
     file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
     formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     logger.setLevel(constants.ACTIVE_LOG_LEVEL)
 
-    # --- THE DEFINITIVE FFMPEG FIX ---
-    # If a specific path was passed from the main process, set it for moviepy.
+    # --- Step 2: Configure FFMPEG path for MoviePy ---
     if ffmpeg_path:
         logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
         change_settings({"FFMPEG_BINARY": ffmpeg_path})
     else:
         logger.warning("No specific ffmpeg path received. Relying on system PATH.")
+        
+    # --- Step 3: THE DEFINITIVE FIX - Set Audio Backend ---
+    # In a bundled app, torchaudio can mistakenly try to use the 'sox' backend,
+    # which requires an external 'sox' command-line tool. This causes an [Errno 2].
+    # By explicitly setting the backend to 'soundfile' (a pure Python library),
+    # we ensure torchaudio can always load audio files reliably.
+    try:
+        torchaudio.set_audio_backend("soundfile")
+        logger.info(f"Successfully set torchaudio backend to 'soundfile'.")
+    except Exception as e:
+        logger.error(f"Failed to set torchaudio backend: {e}")
 
     try:
         def progress_callback(message, percentage=None):
@@ -153,7 +152,6 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
     except Exception as e:
         logger.exception("A critical unhandled error occurred at the top level of the worker process.")
         error_result = ProcessedAudioResult(constants.STATUS_ERROR, message=str(e))
-        # Ensure at least one result is sent back on catastrophic failure
         if 'all_results' not in locals() or not all_results:
              all_results = [error_result]
         queue.put(('finished', {constants.KEY_BATCH_ALL_RESULTS: all_results}))
