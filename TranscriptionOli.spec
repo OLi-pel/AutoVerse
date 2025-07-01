@@ -1,4 +1,4 @@
-z# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 
 import sys
 import os
