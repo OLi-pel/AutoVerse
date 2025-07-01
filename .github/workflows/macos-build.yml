@@ -1,5 +1,3 @@
-# .github/workflows/build-macos.yml
-
 name: Build macOS Application
 
 on:
@@ -9,14 +7,12 @@ on:
 
 jobs:
   build:
-    # --- THE FIX: Force the runner to be an Intel x64 machine ---
-    runs-on: macos-13
+    # --- THE FIX: Switch to the newest Apple Silicon runner ---
+    runs-on: macos-14
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -24,18 +20,26 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           
-      - name: Install PortAudio
+      # Homebrew is pre-installed on this runner
+      - name: Install build dependencies using Homebrew
         run: brew install portaudio
-
-      - name: Set up FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+      
+      # --- THE NEW STRATEGY: Install and copy a native ARM64 ffmpeg ---
+      - name: Install and locate FFmpeg
+        run: brew install ffmpeg
+      - name: Create bin directory and copy FFmpeg for bundling
+        run: |
+          mkdir -p bin
+          # `which ffmpeg` finds the path to the brew-installed binary
+          # and we copy it to our local `bin` folder for PyInstaller
+          cp $(which ffmpeg) bin/
 
       - name: Create Valid Placeholder Icon
         run: |
           mkdir -p assets
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
