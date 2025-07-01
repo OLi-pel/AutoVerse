@@ -9,7 +9,8 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    # --- THE FIX: Force the runner to be an Intel x64 machine ---
+    runs-on: macos-13
 
     steps:
       - name: Check out repository
@@ -26,7 +27,6 @@ jobs:
       - name: Install PortAudio
         run: brew install portaudio
 
-      # --- THE NEW, ROBUST FIX: Use a dedicated setup-ffmpeg action ---
       - name: Set up FFmpeg
         uses: FedericoCarboni/setup-ffmpeg@v3
 
