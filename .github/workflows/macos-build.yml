@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    # --- THE FIX: Switch to the newest Apple Silicon runner ---
+    # Build natively on Apple Silicon for best performance
     runs-on: macos-14
 
     steps:
@@ -20,19 +20,17 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           
-      # Homebrew is pre-installed on this runner
       - name: Install build dependencies using Homebrew
         run: brew install portaudio
       
-      # --- THE NEW STRATEGY: Install and copy a native ARM64 ffmpeg ---
-      - name: Install and locate FFmpeg
-        run: brew install ffmpeg
-      - name: Create bin directory and copy FFmpeg for bundling
+      # --- THE DEFINITIVE FIX: Download a STATIC ffmpeg build ---
+      - name: Download and prepare static FFmpeg
         run: |
           mkdir -p bin
-          # `which ffmpeg` finds the path to the brew-installed binary
-          # and we copy it to our local `bin` folder for PyInstaller
-          cp $(which ffmpeg) bin/
+          # This URL points to a trusted source of static ffmpeg builds for macOS ARM64
+          curl -L "https://www.osxexperts.net/ffmpeg61arm.zip" -o ffmpeg.zip
+          # The -j flag junk paths, extracts only the ffmpeg file
+          unzip -j ffmpeg.zip 'ffmpeg' -d bin/
 
       - name: Create Valid Placeholder Icon
         run: |
