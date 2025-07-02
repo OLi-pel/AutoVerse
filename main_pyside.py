@@ -201,12 +201,19 @@ def run_app():
             
             self.connect_signals()
             self.load_initial_settings()
+
+        # --- [THE FIX] MOVED UPDATE LOGIC DIRECTLY INTO __init__ ---
+        if getattr(sys, 'frozen', False):
+            logger.info("Application is frozen, initializing update check.")
+            # IMPORTANT: Replace with your GitHub username and repository name if needed
+            self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
+            self.update_checker.update_available.connect(self.prompt_for_update)
+            self.update_checker.start()
+        else:
+            logger.info("Application not frozen. Skipping update check.")
+        # --------------------------------------------------------------------
             
             self.window.show()
-
-            # --- [NEW] Start update check on launch ---
-            self.check_for_updates()
-            # -------------------------------------------
             
         def cleanup(self):
             logger.info("Application quitting. Cleaning up...")
@@ -217,21 +224,6 @@ def run_app():
             if hasattr(self, 'correction_logic') and hasattr(self.correction_logic, 'audio_player'):
                 self.correction_logic.audio_player.destroy()
             logger.info("Cleanup finished.")
-
-        # --- [NEW] UPDATE LOGIC METHODS (ADD THESE TO THE CLASS) ---
-        def check_for_updates(self):
-            # This check ensures we don't try to update when running from source code
-            if not getattr(sys, 'frozen', False):
-                logger.info("Application not frozen. Skipping update check.")
-                return
-
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            # !!!                IMPORTANT: EDIT THIS LINE!                    !!!
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
-            
-            self.update_checker.update_available.connect(self.prompt_for_update)
-            self.update_checker.start()
 
         @Slot(str, str, str)
         def prompt_for_update(self, version, notes, url):
