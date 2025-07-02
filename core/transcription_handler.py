@@ -72,7 +72,7 @@ class TranscriptionHandler:
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
         try:
             # The verbose parameter prints detailed progress to the console, which can be useful for debugging.
-            result = self.model.transcribe(audio_path, verbose=None)
+            result = self.model.transcribe(audio_path, verbose=False)
             logger.info("TranscriptionHandler: Transcription completed successfully.")
             return result
         except Exception as e:
