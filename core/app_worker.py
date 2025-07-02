@@ -5,12 +5,41 @@ import sys
 import tempfile
 from moviepy.editor import VideoFileClip
 import torchaudio
-from core.audio_processor import AudioProcessor, ProcessedAudioResult
-from utils import constants
+import traceback
 
+# --- [THE FIX] ---
+# The worker process is independent and needs its own imports.
+from utils import constants
+# --------------------
+
+from core.audio_processor import AudioProcessor, ProcessedAudioResult
+
+# It is good practice to initialize the logger at the module level
 logger = logging.getLogger(__name__)
 
-VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.flv', '.wmv']
+# A custom stream class that redirects stdout/stderr to a logger.
+class TqdmLogStream:
+    """
+    A file-like object that redirects writes to a logger instance.
+    Used to capture output from libraries like tqdm that write to stdout.
+    """
+    def __init__(self, logger_instance, level=logging.DEBUG):
+        self.logger = logger_instance
+        self.level = level
+        self.linebuf = ''
+
+    def write(self, buf):
+        # Write each line to the log
+        for line in buf.rstrip().splitlines():
+            # Don't log empty lines
+            if line.strip():
+                self.logger.log(self.level, line.rstrip())
+
+    def flush(self):
+        # The flush method is required for compatibility with stream protocols.
+        pass
+
+VIDEO_EXTENSIONS = ['.mp4', '.mkv', 'avi', '.mov', '.flv', '.wmv']
 
 def _is_video_file(file_path):
     """Checks if a file is a video based on its extension."""
@@ -26,45 +55,49 @@ def _extract_audio(video_path):
         logger.info(f"Successfully extracted audio from {video_path} to {temp_path}")
         return temp_path
     except Exception as e:
-        logger.error(f"Failed to extract audio from {video_path}: {e}")
+        logger.error(f"Failed to extract audio from {video_path}: {e}", exc_info=True)
         raise
 
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
     """
-    This is the definitive worker function. It modifies the PATH for the entire process,
-    making ffmpeg globally available to all libraries.
+    The definitive worker function. Includes a global fix for the tqdm crash
+    by redirecting console output to a log file.
     """
-    # --- Step 1: Worker-Specific Logging Setup ---
-    log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
+    # We must set up the logger first so we can redirect stdout to it.
+    log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs") # This line now works
     os.makedirs(log_dir, exist_ok=True)
-    log_file_path = os.path.join(log_dir, "worker.log")
-    file_handler = logging.FileHandler(log_file_path, mode='w', encoding='utf-8')
-    formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT)
+    worker_log_path = os.path.join(log_dir, "worker.log")
+    file_handler = logging.FileHandler(worker_log_path, mode='w', encoding='utf-8')
+    formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT) # This now works
     file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.setLevel(constants.ACTIVE_LOG_LEVEL)
-
-    # --- Step 2: THE GLOBAL FFMPEG & AUDIO BACKEND FIX ---
+    
+    # Configure the logger specifically for this worker
+    worker_logger = logging.getLogger("WorkerLogger")
+    worker_logger.addHandler(file_handler)
+    worker_logger.setLevel(constants.LOG_LEVEL_DEBUG) # This now works
+    
+    if getattr(sys, 'frozen', False):
+        sys.stdout = TqdmLogStream(worker_logger, level=logging.DEBUG)
+        sys.stderr = TqdmLogStream(worker_logger, level=logging.ERROR)
+        worker_logger.info("Worker stdout and stderr redirected to log file.")
+    
     if ffmpeg_path and os.path.exists(ffmpeg_path):
-        logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
-        # Get the directory containing the ffmpeg binary
+        worker_logger.info(f"Worker received ffmpeg path: {ffmpeg_path}")
         bin_dir = os.path.dirname(ffmpeg_path)
-        # Prepend this directory to the process's PATH environment variable.
-        # This makes the bundled ffmpeg discoverable by ANY library (moviepy, whisper, etc.)
         os.environ["PATH"] = bin_dir + os.pathsep + os.environ["PATH"]
-        logger.info(f"Worker PATH has been set to: {os.environ['PATH']}")
+        worker_logger.info(f"Worker PATH has been set to: {os.environ['PATH']}")
     else:
-        logger.warning("No specific ffmpeg path received or path does not exist.")
+        worker_logger.warning("No specific ffmpeg path received or path does not exist.")
         
     try:
         torchaudio.set_audio_backend("soundfile")
-        logger.info("Successfully set torchaudio backend to 'soundfile'.")
+        worker_logger.info("Successfully set torchaudio backend to 'soundfile'.")
     except Exception as e:
-        logger.error(f"Failed to set torchaudio backend: {e}")
-    # --- END GLOBAL FIX ---
-    
+        worker_logger.error(f"Failed to set torchaudio backend: {e}")
+
     try:
         def progress_callback(message, percentage=None):
+            # This line and the one below now work
             if percentage is not None: queue.put((constants.MSG_TYPE_PROGRESS, percentage))
             if message: queue.put((constants.MSG_TYPE_STATUS, message))
 
@@ -86,6 +119,7 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
         
         all_results = []
         for idx, file_path in enumerate(file_paths):
+            # This block now works because all constants are defined
             queue.put((constants.MSG_TYPE_BATCH_FILE_START, {
                 'filename': os.path.basename(file_path),
                 'current_idx': idx + 1,
@@ -96,7 +130,7 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
             temp_audio_path = None
             try:
                 if _is_video_file(file_path):
-                    progress_callback(f"Extracting audio...", 0)
+                    progress_callback("Extracting audio...", 0)
                     temp_audio_path = _extract_audio(file_path)
                     audio_to_process = temp_audio_path
 
@@ -115,7 +149,7 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
             except Exception as e:
                 full_traceback = traceback.format_exc()
                 error_msg = f"Failed to process {os.path.basename(file_path)}:\n{full_traceback}"
-                logger.error(f"Captured full traceback:\n{full_traceback}")
+                worker_logger.error(f"Captured full traceback for file {file_path}:\n{full_traceback}")
                 all_results.append(ProcessedAudioResult(status=constants.STATUS_ERROR, message=error_msg, source_file=file_path))
             
             finally:
@@ -126,5 +160,5 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
 
     except Exception:
         full_traceback = traceback.format_exc()
-        logger.error(f"Critical unhandled error in worker:\n{full_traceback}")
-        queue.put(('finished', {'all_results': [ProcessedAudioResult(status=constants.STATUS_ERROR, message=full_traceback)]}))
+        worker_logger.error(f"Critical unhandled error in worker:\n{full_traceback}")
+        queue.put((constants.MSG_TYPE_BATCH_COMPLETED, {'all_results': [ProcessedAudioResult(status=constants.STATUS_ERROR, message=f"A critical worker error occurred:\n{full_traceback}")]}))

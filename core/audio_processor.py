@@ -21,16 +21,18 @@ class ProcessedAudioResult:
 class AudioProcessor:
     def __init__(self, config: dict, progress_callback=None, 
                  enable_diarization=True, include_timestamps=True, 
-                 include_end_times=False, enable_auto_merge=False, cache_dir=None):
+                 include_end_times=False, enable_auto_merge=False, cache_dir=None, logger_instance=None):
+        
+        self.logger = logger_instance if logger_instance else logger
         
         # --- AGGRESSIVE DIAGNOSTIC WRAPPER ---
         # The entire initialization is wrapped to catch any model loading errors.
         try:
-            logger = logging.getLogger(__name__)
-            logger.info("--- AudioProcessor Initialization Started ---")
+            self.logger.info("--- AudioProcessor Initialization Started ---")
             
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            logger.info(f"AudioProcessor: Using device: {self.device}")
+            self.logger.info(f"AudioProcessor: Using device: {self.device}")
+
 
             self.progress_callback = progress_callback
             self.output_enable_diarization = enable_diarization 
@@ -41,7 +43,7 @@ class AudioProcessor:
             self.diarization_handler = None 
 
             if self.output_enable_diarization:
-                logger.info("Attempting to initialize DiarizationHandler...")
+                self.logger.info("Attempting to initialize DiarizationHandler...")
                 huggingface_config = config.get('huggingface', {})
                 use_auth_token_flag = str(huggingface_config.get('use_auth_token', 'no')).lower() == 'yes'
                 hf_token_val = huggingface_config.get('hf_token') if use_auth_token_flag else None
