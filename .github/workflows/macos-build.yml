@@ -44,10 +44,10 @@ jobs:
         run: pyinstaller AutoVerse.spec
 
       - name: Zip the .app bundle
-        run: ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse_macOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse-macOS-App.zip
 
       - name: Upload Application Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoVerse-macOS-App
-          path: dist/AutoVerse_macOS.zip
+          path: dist/AutoVerse-macOS-App.zip

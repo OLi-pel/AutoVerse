@@ -45,11 +45,11 @@ jobs:
         run: pyinstaller AutoVerse.spec
 
       - name: Zip the output folder
-        run: Compress-Archive -Path dist/AutoVerse_App -DestinationPath dist/AutoVerse_Windows.zip
+        run: Compress-Archive -Path dist/AutoVerse_App -DestinationPath dist/AutoVerse-Windows-App.zip
         shell: powershell
         
       - name: Upload Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoVerse-Windows-App
-          path: dist/AutoVerse_Windows.zip
+          path: dist/AutoVerse-Windows-App.zip

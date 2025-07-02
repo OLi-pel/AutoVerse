@@ -4,6 +4,8 @@ import sys
 import multiprocessing
 import os
 import logging
+import ssl      
+import certifi
 from queue import Empty
 import platform # --- NEW IMPORT
 import requests # --- NEW IMPORT
@@ -15,6 +17,29 @@ from packaging.version import Version # --- NEW IMPORT
 # Keep only the most essential, safe imports at the global level
 # QApplication must be imported here for the app instance to be created.
 from PySide6.QtWidgets import QApplication
+
+def configure_ssl_for_bundle():
+    """
+    On macOS, PyInstaller bundles are isolated from system certificates.
+    This function programmatically tells Python's SSL module to use the
+    certificate bundle provided by the `certifi` package.
+    """
+    if sys.platform == 'darwin' and getattr(sys, 'frozen', False):
+        try:
+            # Get the path to the certifi certificate bundle
+            cert_path = certifi.where()
+            
+            # Set the SSL_CERT_FILE environment variable for this process
+            # This is the primary method used by 'requests', 'urllib3', etc.
+            os.environ['SSL_CERT_FILE'] = cert_path
+            
+            # Also configure the default SSL context for lower-level libraries
+            ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=cert_path)
+            
+            logging.info(f"SSL Context configured to use certifi bundle at: {cert_path}")
+
+        except Exception as e:
+            logging.error(f"CRITICAL: Failed to configure SSL certificates for bundle. Network requests may fail. Error: {e}")
 
 # --- NEW HELPER FUNCTION ---
 def _get_bundled_ffmpeg_path():
@@ -58,7 +83,7 @@ def run_app():
             if not self.current_os_string:
                 logger.warning("Auto-updates not supported on this OS.")
                 return
-            self.asset_name = f"AutoVerse_{self.current_os_string}.zip"
+            self.asset_name = f"AutoVerse-{self.current_os_string}-App.zip"
 
         def _get_os_string(self):
             system = platform.system()
@@ -583,6 +608,7 @@ def run_app():
     sys.exit(app.exec())
 
 if __name__ == "__main__":
+    configure_ssl_for_bundle()
     multiprocessing.freeze_support()
     multiprocessing.set_start_method('spawn', force=True)
     run_app()
