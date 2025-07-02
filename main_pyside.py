@@ -54,7 +54,10 @@ def run_app():
     """
     Contains all application logic and imports.
     """
-    from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal
+    # --- [THE FIX] Added 'Qt' to this import line ---
+    from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
+    # ----------------------------------------------------
+
     from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
     from PySide6.QtUiTools import QUiLoader
@@ -71,7 +74,7 @@ def run_app():
     logger = logging.getLogger(__name__)
 
 
-    # --- [NEW] UPDATE CHECKER THREAD ---
+    # --- UPDATE CHECKER THREAD ---
     class UpdateChecker(QThread):
         update_available = Signal(str, str, str) # version, release_notes, download_url
 
@@ -89,11 +92,11 @@ def run_app():
             system = platform.system()
             if system == "Windows": return "Windows"
             if system == "Darwin": return "macOS"
-            return None # e.g., for Linux if builds aren't provided
+            return None
         
         def run(self):
             if not self.current_os_string:
-                return # Do not run if OS is not supported
+                return
             try:
                 url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases/latest"
                 logger.info(f"Checking for updates at: {url}")
@@ -125,7 +128,7 @@ def run_app():
                 logger.error(f"An unexpected error occurred during update check: {e}", exc_info=True)
 
 
-    # --- [NEW] DOWNLOADER THREAD ---
+    # --- DOWNLOADER THREAD ---
     class Downloader(QThread):
         download_progress = Signal(int)
         download_finished = Signal(bool, str)
