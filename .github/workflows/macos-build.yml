@@ -41,13 +41,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Build with PyInstaller
-        run: pyinstaller TranscriptionOli.spec
+        run: pyinstaller AutoVerse.spec
 
       - name: Zip the .app bundle
-        run: ditto -c -k --sequesterRsrc --keepParent dist/TranscriptionOli.app dist/TranscriptionOli_macOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse_macOS.zip
 
       - name: Upload Application Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TranscriptionOli-macOS-App
-          path: dist/TranscriptionOli_macOS.zip
+          name: AutoVerse-macOS-App
+          path: dist/AutoVerse_macOS.zip

@@ -3,8 +3,11 @@ import os
 import sys
 import logging
 
+# --- Application Version ---
+APP_VERSION = "1.0.0" 
+
 # --- User-specific Application Data Directory ---
-APP_NAME = "TranscriptionOli"
+APP_NAME = "AutoVerse"
 
 def get_app_data_dir():
     """Returns the appropriate user-specific data directory for the OS."""

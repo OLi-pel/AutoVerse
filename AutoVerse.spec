@@ -1,3 +1,5 @@
+# AutoVerse.spec
+
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
@@ -11,24 +13,21 @@ else:
     # For macOS and Linux
     ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
 
-# --- THE DEFINITIVE FIX ---
-# Collect all non-code data files from these critical libraries.
-# This ensures that vocabularies, tokenizers, and model configs are bundled.
 datas = [
     ('ui/main_window.ui', 'ui'),
     ('assets', 'assets'),
     *collect_data_files('lightning_fabric'),
     *collect_data_files('speechbrain'),
     *collect_data_files('pyannote'),
-    *collect_data_files('tiktoken'),     # <--- ADD THIS
-    *collect_data_files('transformers')  # <--- ADD THIS
+    *collect_data_files('tiktoken'),
+    *collect_data_files('transformers')
 ]
 
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
     binaries=[(ffmpeg_binary_path, 'bin')],
-    datas=datas,  # <--- Use the new datas list
+    datas=datas,
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
         'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
@@ -47,7 +46,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='TranscriptionOli',
+    name='AutoVerse',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -59,21 +58,51 @@ exe = EXE(
     entitlements_file=None,
     icon=os.path.join('assets', 'logo.icns' if sys.platform == 'darwin' else 'logo.ico')
 )
+
+# --- NEW SECTION: Define the updater executable ---
+updater_analysis = Analysis(
+    ['updater.py'], # Updater script entry point
+    pathex=[],
+    binaries=[],
+    datas=[],
+    hiddenimports=['requests'], # Add requests here if it is used
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False
+)
+updater_pyz = PYZ(updater_analysis.pure)
+updater_exe = EXE(
+    updater_pyz,
+    updater_analysis.scripts,
+    exclude_binaries=True,
+    name='updater',
+    debug=False,
+    strip=False,
+    upx=True,
+    console=True, # Updater is a console app
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None
+)
+
+# --- END NEW SECTION ---
 coll = COLLECT(
     exe,
+    updater_exe, # <--- ADD THE UPDATER EXE HERE
     a.binaries,
     a.zipfiles,
     a.datas,
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='TranscriptionOli_App'
+    name='AutoVerse_App'
 )
 
 if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
-        name='TranscriptionOli.app',
+        name='AutoVerse.app',
         icon=os.path.join('assets', 'logo.icns'),
         bundle_identifier=None,
     )

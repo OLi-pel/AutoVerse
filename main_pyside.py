@@ -1,8 +1,16 @@
+# main_pyside.py
+
 import sys
 import multiprocessing
 import os
 import logging
 from queue import Empty
+import platform # --- NEW IMPORT
+import requests # --- NEW IMPORT
+import tempfile # --- NEW IMPORT
+import subprocess # --- NEW IMPORT
+import shutil # --- NEW IMPORT
+from packaging.version import Version # --- NEW IMPORT
 
 # Keep only the most essential, safe imports at the global level
 # QApplication must be imported here for the app instance to be created.
@@ -21,7 +29,7 @@ def run_app():
     """
     Contains all application logic and imports.
     """
-    from PySide6.QtCore import QObject, Slot, QTimer
+    from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal
     from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
     from PySide6.QtUiTools import QUiLoader
@@ -37,6 +45,98 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
+
+    # --- [NEW] UPDATE CHECKER THREAD ---
+    class UpdateChecker(QThread):
+        update_available = Signal(str, str, str) # version, release_notes, download_url
+
+        def __init__(self, owner, repo):
+            super().__init__()
+            self.owner = owner
+            self.repo = repo
+            self.current_os_string = self._get_os_string()
+            if not self.current_os_string:
+                logger.warning("Auto-updates not supported on this OS.")
+                return
+            self.asset_name = f"AutoVerse_{self.current_os_string}.zip"
+
+        def _get_os_string(self):
+            system = platform.system()
+            if system == "Windows": return "Windows"
+            if system == "Darwin": return "macOS"
+            return None # e.g., for Linux if builds aren't provided
+        
+        def run(self):
+            if not self.current_os_string:
+                return # Do not run if OS is not supported
+            try:
+                url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases/latest"
+                logger.info(f"Checking for updates at: {url}")
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                
+                latest_release = response.json()
+                latest_version_str = latest_release.get("tag_name", "v0.0.0").lstrip('v')
+                
+                if Version(latest_version_str) > Version(constants.APP_VERSION):
+                    logger.info(f"Update found! Current: {constants.APP_VERSION}, Latest: {latest_version_str}")
+                    download_url = ""
+                    for asset in latest_release.get("assets", []):
+                        if asset.get("name") == self.asset_name:
+                            download_url = asset.get("browser_download_url")
+                            break
+                    
+                    if download_url:
+                        self.update_available.emit(
+                            latest_version_str, 
+                            latest_release.get("body", "No release notes available."),
+                            download_url
+                        )
+                    else:
+                        logger.warning(f"Update {latest_version_str} found, but asset '{self.asset_name}' was not present.")
+            except requests.RequestException as e:
+                logger.warning(f"Could not check for updates (network issue): {e}")
+            except Exception as e:
+                logger.error(f"An unexpected error occurred during update check: {e}", exc_info=True)
+
+
+    # --- [NEW] DOWNLOADER THREAD ---
+    class Downloader(QThread):
+        download_progress = Signal(int)
+        download_finished = Signal(bool, str)
+
+        def __init__(self, url):
+            super().__init__()
+            self.url = url
+
+        def run(self):
+            try:
+                logger.info(f"Starting download from: {self.url}")
+                response = requests.get(self.url, stream=True, timeout=15)
+                response.raise_for_status()
+                total_size = int(response.headers.get('content-length', 0))
+                
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as temp_file:
+                    file_path = temp_file.name
+                
+                downloaded_size = 0
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        progress = int((downloaded_size / total_size) * 100) if total_size > 0 else 0
+                        self.download_progress.emit(progress)
+
+                logger.info(f"Download complete. File saved to: {file_path}")
+                self.download_finished.emit(True, file_path)
+
+            except requests.RequestException as e:
+                logger.error(f"Download failed: {e}", exc_info=True)
+                self.download_finished.emit(False, "")
+            except Exception as e:
+                logger.error(f"An unexpected error occurred during download: {e}", exc_info=True)
+                self.download_finished.emit(False, "")
+
     class MainApplication(QObject):
         def __init__(self, app_instance):
             super().__init__()
@@ -49,6 +149,7 @@ def run_app():
             ui_file_path = os.path.join(base_path, "ui", "main_window.ui")
             
             self.window = loader.load(ui_file_path, None)
+            self.window.setWindowTitle(f"AutoVerse v{constants.APP_VERSION}") # Set Window Title
             
             if not self.window:
                 logger.critical(f"Failed to load UI file: {ui_file_path}")
@@ -78,6 +179,10 @@ def run_app():
             
             self.window.show()
 
+            # --- [NEW] Start update check on launch ---
+            self.check_for_updates()
+            # -------------------------------------------
+            
         def cleanup(self):
             logger.info("Application quitting. Cleaning up...")
             if self.process and self.process.is_alive():
@@ -87,8 +192,92 @@ def run_app():
             if hasattr(self, 'correction_logic') and hasattr(self.correction_logic, 'audio_player'):
                 self.correction_logic.audio_player.destroy()
             logger.info("Cleanup finished.")
+
+        # --- [NEW] UPDATE LOGIC METHODS (ADD THESE TO THE CLASS) ---
+        def check_for_updates(self):
+            # This check ensures we don't try to update when running from source code
+            if not getattr(sys, 'frozen', False):
+                logger.info("Application not frozen. Skipping update check.")
+                return
+
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            # !!!                IMPORTANT: EDIT THIS LINE!                    !!!
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
+            
+            self.update_checker.update_available.connect(self.prompt_for_update)
+            self.update_checker.start()
+
+        @Slot(str, str, str)
+        def prompt_for_update(self, version, notes, url):
+            msg_box = QMessageBox(self.window)
+            msg_box.setWindowTitle(f"Update Available: v{version}")
+            msg_box.setText(f"A new version of AutoVerse is available (<b>v{version}</b>). You have v{constants.APP_VERSION}.<br><br>Would you like to download and install it now?")
+            msg_box.setInformativeText(f"<b>Release Notes:</b><hr>{notes}")
+            msg_box.setTextFormat(Qt.RichText)
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+            
+            if msg_box.exec() == QMessageBox.Yes:
+                self.start_download(url)
+
+        def start_download(self, url):
+            self.window.status_label.setText("Downloading update...")
+            self.downloader = Downloader(url)
+            self.downloader.download_progress.connect(self.window.progress_bar.setValue)
+            self.downloader.download_finished.connect(self.on_download_finished)
+            self.downloader.start()
+
+        @Slot(bool, str)
+        def on_download_finished(self, success, file_path):
+            if not success:
+                QMessageBox.critical(self.window, "Download Error", "Failed to download the update. Please try again later or visit the GitHub page to download it manually.")
+                self.window.status_label.setText("Update download failed.")
+                self.window.progress_bar.setValue(0)
+                return
+            
+            self.window.status_label.setText("Download complete. Starting update...")
+            self.window.progress_bar.setValue(100)
+            self.trigger_updater(file_path)
+
+        def trigger_updater(self, zip_path):
+            """Prepares and launches the external updater script."""
+            try:
+                updater_in_bundle = os.path.join(sys._MEIPASS, 'updater.exe' if sys.platform == 'win32' else 'updater')
+                
+                # Copy updater to a temporary location so it can delete the main app directory
+                temp_dir = tempfile.gettempdir()
+                temp_updater_path = os.path.join(temp_dir, os.path.basename(updater_in_bundle))
+                shutil.copy2(updater_in_bundle, temp_updater_path)
+
+                install_dir = ""
+                main_executable_name = ""
+
+                if sys.platform == 'darwin': # macOS
+                    # sys.executable is inside AutoVerse.app/Contents/MacOS/AutoVerse
+                    # We need to get the directory containing the .app bundle
+                    install_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', '..', '..'))
+                    main_executable_name = "AutoVerse.app"
+                else: # Windows
+                    install_dir = os.path.dirname(sys.executable)
+                    main_executable_name = "AutoVerse.exe"
+
+                args = [temp_updater_path, zip_path, install_dir, main_executable_name]
+
+                logger.info(f"Launching updater from '{temp_updater_path}'")
+                logger.info(f"Updater arguments: {args}")
+
+                subprocess.Popen(args)
+                self.app.quit() # Crucial: close the main app
+
+            except Exception as e:
+                logger.error(f"Failed to launch updater: {e}", exc_info=True)
+                QMessageBox.critical(self.window, "Update Error", f"Could not launch the updater script: {e}. Please update manually.")
+        
+        # --- END OF NEW UPDATE METHODS ---
         
         def _promote_widgets(self):
+            # ... (no changes here) ...
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
             self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
             self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
@@ -130,12 +319,14 @@ def run_app():
             self.window.font_size_combo = self.window.findChild(QComboBox, "Police_size")
 
         def _setup_fonts(self):
+            # ... (no changes here) ...
             font_id = QFontDatabase.font("Monaco", "Roman", 12)
             if font_id == -1: self.window.monospace_font = QFont("Monospace", 12)
             else: self.window.monospace_font = QFont("Monaco")
             self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
 
         def _setup_icons(self):
+            # ... (no changes here) ...
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
             icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png"}
@@ -156,6 +347,7 @@ def run_app():
             self.window.correction_play_pause_btn.setIcon(self.window.icon_play)
 
         def connect_signals(self):
+            # ... (no changes here) ...
             self.window.browse_button.clicked.connect(self.select_files)
             self.window.start_processing_button.clicked.connect(self.start_or_abort_processing)
             self.window.save_token_button.clicked.connect(self.save_huggingface_token)
@@ -163,12 +355,14 @@ def run_app():
             self.window.correction_button.clicked.connect(self.go_to_correction)
 
         def toggle_advanced_options(self, state):
+            # ... (no changes here) ...
             is_checked = (state == 2)
             if self.window.huggingface_token_frame: self.window.huggingface_token_frame.setVisible(is_checked)
             if self.window.auto_merge_checkbutton: self.window.auto_merge_checkbutton.setEnabled(is_checked)
             if not is_checked: self.window.auto_merge_checkbutton.setChecked(False)
 
         def set_ui_for_processing(self, is_processing):
+            # ... (no changes here) ...
             self.window.findChild(QGroupBox, "Audio_file_frame").setEnabled(not is_processing)
             self.window.findChild(QGroupBox, "Processing_options_frame").setEnabled(not is_processing)
             self.window.start_processing_button.setEnabled(True) 
@@ -184,9 +378,11 @@ def run_app():
             self.is_processing = is_processing
         
         def get_processing_options(self):
+            # ... (no changes here) ...
             return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.diarization_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
 
         def load_initial_settings(self):
+            # ... (no changes here) ...
             self.window.correction_button.setEnabled(False)
             self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
             self.window.model_dropdown.setCurrentText("large (recommended)")
@@ -215,6 +411,7 @@ def run_app():
             logger.info("Initial settings loaded.")
 
         def save_huggingface_token(self):
+            # ... (no changes here) ...
             token = self.window.huggingface_token_entry.text().strip()
             self.config_manager.save_huggingface_token(token)
             self.config_manager.set_use_auth_token(bool(token))
@@ -222,6 +419,7 @@ def run_app():
 
         @Slot()
         def select_files(self):
+            # ... (no changes here) ...
             from PySide6.QtWidgets import QFileDialog
             if self.is_processing: return
             file_filter = ("All Media Files (*.wav *.mp3 *.aac *.flac *.m4a *.mp4 *.mov *.avi *.mkv);;Audio Files (*.wav *.mp3 *.aac *.flac *.m4a);;Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)")
@@ -233,6 +431,7 @@ def run_app():
 
         @Slot()
         def start_or_abort_processing(self):
+            # ... (no changes here) ...
             if self.is_processing and self.process:
                 if self.process.is_alive():
                     self.process.terminate()
@@ -260,9 +459,8 @@ def run_app():
             self.window.output_text_area.clear()
             
             options = self.get_processing_options()
-            cache_dir = os.path.join(os.path.expanduser('~'), 'TranscriptionOli_Cache')
+            cache_dir = os.path.join(os.path.expanduser('~'), 'AutoVerse_Cache')
             
-            # --- MODIFIED: Get ffmpeg path in main process ---
             ffmpeg_path = _get_bundled_ffmpeg_path()
             if ffmpeg_path:
                 logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
@@ -270,7 +468,6 @@ def run_app():
             self.queue = multiprocessing.Queue()
             self.process = multiprocessing.Process(
                 target=processing_worker_function, 
-                # --- MODIFIED: Pass ffmpeg_path to the worker ---
                 args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder, ffmpeg_path), 
                 daemon=True
             )
@@ -278,6 +475,7 @@ def run_app():
             self.timer.start(100)
 
         def check_queue(self):
+            # ... (no changes here) ...
             try:
                 msg_type, data = self.queue.get_nowait()
                 if msg_type == constants.MSG_TYPE_PROGRESS:
@@ -306,6 +504,7 @@ def run_app():
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
 
         def handle_batch_results(self, final_payload):
+            # ... (no changes here) ...
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]
             summary = []
             successful_count = 0
@@ -340,6 +539,7 @@ def run_app():
             self.set_ui_for_processing(False)
         
         def prompt_and_save_single_result(self, result):
+            # ... (no changes here) ...
             if hasattr(result, 'output_path') and result.output_path:
                 self.last_single_file_result_path = result.output_path
                 self.window.correction_button.setEnabled(True)
@@ -367,6 +567,7 @@ def run_app():
 
         @Slot()
         def go_to_correction(self):
+            # ... (no changes here) ...
             if not self.last_single_file_result_path or not self.audio_file_paths:
                 QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths.")
                 return
