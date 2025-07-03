@@ -308,43 +308,82 @@ def run_app():
             self.trigger_updater(file_path)
 
         def trigger_updater(self, zip_path):
-            """Prepares and launches the external updater script."""
+            """
+            Creates and launches a native OS script (.sh or .bat) to perform
+            the update, ensuring it works robustly without dependency issues.
+            """
             try:
-                # --- [THE FIX for App Translocation] ---
-                # Instead of guessing with _MEIPASS, get the path relative to the main executable.
-                # On both platforms, the updater is bundled in the same directory as the main app executable.
-                current_executable_path = os.path.dirname(sys.executable)
-                updater_in_bundle = os.path.join(current_executable_path, 'updater.exe' if sys.platform == 'win32' else 'updater')
-                # ---------------------------------------------
-                
-                # This part remains the same: copy updater to a temp dir to run it from
-                temp_dir = tempfile.gettempdir()
-                temp_updater_path = os.path.join(temp_dir, os.path.basename(updater_in_bundle))
-                shutil.copy2(updater_in_bundle, temp_updater_path)
-
                 install_dir = ""
-                main_executable_name = ""
+                relaunch_path = ""
+                script_path = ""
+                script_content = ""
 
-                if sys.platform == 'darwin': # macOS
-                    # install_dir is the directory that CONTAINS AutoVerse.app
-                    install_dir = os.path.abspath(os.path.join(current_executable_path, '..', '..', '..'))
-                    main_executable_name = "AutoVerse.app"
-                else: # Windows
-                    # install_dir is the directory containing AutoVerse.exe
-                    install_dir = current_executable_path
-                    main_executable_name = "AutoVerse.exe"
+                if sys.platform == 'darwin':
+                    # --- macOS Script Logic ---
+                    install_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', '..', '..'))
+                    app_path = os.path.join(install_dir, "AutoVerse.app")
+                    relaunch_path = app_path
 
-                args = [temp_updater_path, zip_path, install_dir, main_executable_name]
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
+                        script_path = f.name
+                        # [COSMETIC FIX] Break the long f-string into smaller parts
+                        script_content = (
+                            "#!/bin/bash\n"
+                            "# AutoVerse Updater Script for macOS\n\n"
+                            "echo \"AutoVerse Updater: Starting...\"\n"
+                            "echo \"Waiting for main application to close...\"\n"
+                            "sleep 3\n\n"
+                            f"echo \"Removing old application bundle at '{app_path}'...\"\n"
+                            f"rm -rf \"{app_path}\"\n\n"
+                            f"echo \"Unzipping new version from '{zip_path}' to '{install_dir}'...\"\n"
+                            f"unzip -o \"{zip_path}\" -d \"{install_dir}\"\n\n"
+                            f"echo \"Relaunching AutoVerse at '{relaunch_path}'...\"\n"
+                            f"open \"{relaunch_path}\"\n\n"
+                            "echo \"Cleaning up updater script...\"\n"
+                            "rm -- \"$0\"\n"
+                        )
+                        f.write(script_content)
 
-                logger.info(f"Launching updater from '{temp_updater_path}'")
-                logger.info(f"Updater arguments: {args}")
+                    os.chmod(script_path, 0o755)
+                    subprocess.Popen(['open', script_path])
 
-                subprocess.Popen(args)
-                self.app.quit() 
+                elif sys.platform == 'win32':
+                    # --- Windows Script Logic ---
+                    install_dir = os.path.dirname(sys.executable)
+                    relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
+                    
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
+                        script_path = f.name
+                        # [COSMETIC FIX] Break the long f-string into smaller parts
+                        script_content = (
+                            "@echo off\n"
+                            "echo AutoVerse Updater: Starting...\n"
+                            "echo Waiting for main application to close...\n"
+                            "timeout /t 3 /nobreak > NUL\n\n"
+                            f"echo Removing old application files from \"{install_dir}\"...\n"
+                            f"del /q \"{install_dir}\\*.*\"\n"
+                            f"for /d %%p in (\"{install_dir}\\*.*\") do rd \"%%p\" /s /q\n\n"
+                            f"echo Extracting new version from \"{zip_path}\"...\n"
+                            f"tar -xf \"{zip_path}\" -C \"{install_dir}\"\n\n"
+                            "echo Moving extracted files up from 'AutoVerse_App' folder...\n"
+                            f"move \"{install_dir}\\AutoVerse_App\\*.*\" \"{install_dir}\\\"\n"
+                            f"rmdir \"{install_dir}\\AutoVerse_App\"\n\n"
+                            "echo Relaunching AutoVerse...\n"
+                            f"start \"\" \"{relaunch_path}\"\n\n"
+                            "echo Cleaning up updater script and zip file...\n"
+                            f"del \"{zip_path}\"\n"
+                            "del \"%~f0\"\n"
+                        )
+                        f.write(script_content)
+
+                    subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
+                
+                logger.info(f"Update script written to '{script_path}'. Launching update process.")
+                self.app.quit()
 
             except Exception as e:
-                logger.error(f"Failed to launch updater: {e}", exc_info=True)
-                QMessageBox.critical(self.window, "Update Error", f"Could not launch the updater script: {e}. Please update manually.")
+                logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
+                QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")

@@ -59,37 +59,8 @@ exe = EXE(
     icon=os.path.join('assets', 'logo.icns' if sys.platform == 'darwin' else 'logo.ico')
 )
 
-# --- NEW SECTION: Define the updater executable ---
-updater_analysis = Analysis(
-    ['updater.py'], # Updater script entry point
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=['requests'], # Add requests here if it is used
-    hookspath=[],
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False
-)
-updater_pyz = PYZ(updater_analysis.pure)
-updater_exe = EXE(
-    updater_pyz,
-    updater_analysis.scripts,
-    exclude_binaries=True,
-    name='updater',
-    debug=False,
-    strip=False,
-    upx=True,
-    console=True, # Updater is a console app
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None
-)
-
-# --- END NEW SECTION ---
 coll = COLLECT(
     exe,
-    updater_exe, # <--- ADD THE UPDATER EXE HERE
     a.binaries,
     a.zipfiles,
     a.datas,
