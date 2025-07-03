@@ -14,6 +14,7 @@ from core.undo_redo import UndoManager, ModifyStateCommand
 from utils import constants
 from ui.timeline_frame import WaveformFrame
 from ui.selectable_text_edit import SelectableTextEdit
+from utils import tips_data
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +48,46 @@ class CorrectionViewLogic(QObject):
             if item and item.widget(): item.widget().deleteLater()
         layout.addWidget(self.timeline)
         
+        self.tip_widgets = {
+            self.main_window.correction_browse_transcription_btn: "correction_browse_transcription_btn",
+            self.main_window.correction_browse_audio_btn: "correction_browse_audio_btn",
+            self.main_window.correction_load_files_btn: "correction_load_files_btn",
+            self.main_window.correction_save_changes_btn: "correction_save_changes_btn",
+            self.main_window.correction_play_pause_btn: "correction_play_pause_btn",
+            self.main_window.correction_rewind_btn: "correction_rewind_btn",
+            self.main_window.correction_forward_btn: "correction_forward_btn",
+            self.timeline: "correction_timeline_frame",
+            self.main_window.correction_time_label: "correction_time_label",
+            self.main_window.findChild(QPushButton, "Undo_button"): "Undo_button",
+            self.main_window.findChild(QPushButton, "Redo_Button"): "Redo_Button",
+            self.main_window.edit_speaker_btn: "edit_speaker_btn",
+            self.main_window.correction_text_edit_btn: "correction_text_edit_btn",
+            self.main_window.correction_timestamp_edit_btn: "correction_timestamp_edit_btn",
+            self.main_window.save_timestamp_btn: "save_timestamp_btn",
+            self.main_window.segment_btn: "segment_btn",
+            self.main_window.merge_segments_btn: "merge_segments_btn",
+            self.main_window.delete_segment_btn: "delete_segment_btn",
+            self.main_window.correction_assign_speakers_btn: "correction_assign_speakers_btn",
+            self.main_window.text_font_combo: "text_font_combo",
+            self.main_window.font_size_combo: "Police_size", # Matching the name in the .ui file
+            self.main_window.change_highlight_color_btn: "change_highlight_color_btn",
+            self.main_window.correction_text_area: "correction_text_area"
+        }
+
         self.connect_signals()
         self.set_controls_enabled(False)
         self._update_text_area_font()
         self._update_undo_redo_buttons_state(False, False)
+
+    def set_tips_enabled(self, is_enabled):
+            """Sets the status tips for all widgets managed by this class."""
+            for widget, tip_key in self.tip_widgets.items():
+                if widget: # Ensure widget exists
+                    if is_enabled:
+                        tip_text = tips_data.get_tip("correction_window", tip_key)
+                        widget.setStatusTip(tip_text or "")
+                    else:
+                        widget.setStatusTip("")
 
     def connect_audio_player_signals(self):
         self.audio_player.progress.connect(self.update_audio_progress)

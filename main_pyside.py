@@ -69,6 +69,7 @@ def run_app():
     from core.app_worker import processing_worker_function
     from core.audio_processor import AudioProcessor
     from ui.selectable_text_edit import SelectableTextEdit
+    from utils import tips_data
 
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -187,10 +188,30 @@ def run_app():
             self.is_processing = False
             
             self._promote_widgets()
+
+            self.correction_logic = CorrectionViewLogic(self.window)
+
+            self.tip_widgets = {
+                # --- Main Transcription Tab ---
+                self.window.audio_file_entry: "audio_file_browse",
+                self.window.browse_button: "audio_file_browse",
+                self.window.model_dropdown: "transcription_model_dropdown",
+                self.window.diarization_checkbutton: "enable_diarization_checkbox",
+                self.window.auto_merge_checkbutton: "auto_merge_checkbutton",
+                self.window.timestamps_checkbutton_2: "include_timestamps_checkbox",
+                self.window.end_times_checkbutton: "include_end_times_checkbox",
+                self.window.huggingface_token_entry: "huggingface_token_entry",
+                self.window.save_token_button: "save_huggingface_token_button",
+                self.window.start_processing_button: "start_processing_button",
+                self.window.status_label: "status_label",
+                self.window.progress_bar: "progress_bar",
+                self.window.output_text_area: "output_text_area",
+                self.window.correction_button: "correction_window_button",
+                self.window.show_tips_checkbox: "show_tips_checkbox_main",
+            }
+
             self._setup_fonts()
             self._setup_icons()
-            
-            self.correction_logic = CorrectionViewLogic(self.window)
             
             self.app.aboutToQuit.connect(self.cleanup)
 
@@ -217,6 +238,31 @@ def run_app():
             # --------------------------------------------------------------------
 
             self.window.show()
+
+        def _apply_tips_state(self, is_enabled):
+            # --- [NEW] Hide or show the entire status bar ---
+            self.window.statusBar().setVisible(is_enabled)
+
+            for widget, tip_key in self.tip_widgets.items():
+                if not widget: continue
+                if is_enabled:
+                    tip_text = tips_data.get_tip("main_window", tip_key)
+                    widget.setStatusTip(tip_text or "")
+                else:
+                    widget.setStatusTip("")
+
+        @Slot(int)
+        def on_tips_toggled(self, state):
+            is_enabled = (state == Qt.Checked.value)
+            
+            # Apply state to the main window and status bar
+            self._apply_tips_state(is_enabled)
+            
+            # --- [NEW] Tell the correction logic to apply the state too ---
+            self.correction_logic.set_tips_enabled(is_enabled)
+            
+            self.config_manager.set_main_window_show_tips(is_enabled)
+            logger.info(f"Tips display set to: {is_enabled} and preference saved.")
                 
         def cleanup(self):
             logger.info("Application quitting. Cleaning up...")
@@ -373,6 +419,7 @@ def run_app():
             self.window.save_token_button.clicked.connect(self.save_huggingface_token)
             self.window.diarization_checkbutton.stateChanged.connect(self.toggle_advanced_options)
             self.window.correction_button.clicked.connect(self.go_to_correction)
+            self.window.show_tips_checkbox.stateChanged.connect(self.on_tips_toggled)
 
         def toggle_advanced_options(self, state):
             is_checked = (state == 2)
@@ -425,6 +472,14 @@ def run_app():
                 button.setFixedWidth(text_width + padding)
                 
             logger.info("Initial settings loaded.")
+            show_tips = self.config_manager.get_main_window_show_tips()
+            self.window.show_tips_checkbox.setChecked(show_tips)
+            
+            # Apply the preference to both the main window and the correction logic
+            self._apply_tips_state(show_tips)
+            self.correction_logic.set_tips_enabled(show_tips)
+            
+            logger.info(f"Loaded tips preference on startup: {show_tips}")
 
         def save_huggingface_token(self):
             token = self.window.huggingface_token_entry.text().strip()
