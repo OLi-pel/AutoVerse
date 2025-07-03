@@ -264,8 +264,14 @@ def run_app():
         def trigger_updater(self, zip_path):
             """Prepares and launches the external updater script."""
             try:
-                updater_in_bundle = os.path.join(sys._MEIPASS, 'updater.exe' if sys.platform == 'win32' else 'updater')
+                # --- [THE FIX for App Translocation] ---
+                # Instead of guessing with _MEIPASS, get the path relative to the main executable.
+                # On both platforms, the updater is bundled in the same directory as the main app executable.
+                current_executable_path = os.path.dirname(sys.executable)
+                updater_in_bundle = os.path.join(current_executable_path, 'updater.exe' if sys.platform == 'win32' else 'updater')
+                # ---------------------------------------------
                 
+                # This part remains the same: copy updater to a temp dir to run it from
                 temp_dir = tempfile.gettempdir()
                 temp_updater_path = os.path.join(temp_dir, os.path.basename(updater_in_bundle))
                 shutil.copy2(updater_in_bundle, temp_updater_path)
@@ -274,10 +280,12 @@ def run_app():
                 main_executable_name = ""
 
                 if sys.platform == 'darwin': # macOS
-                    install_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', '..', '..'))
+                    # install_dir is the directory that CONTAINS AutoVerse.app
+                    install_dir = os.path.abspath(os.path.join(current_executable_path, '..', '..', '..'))
                     main_executable_name = "AutoVerse.app"
                 else: # Windows
-                    install_dir = os.path.dirname(sys.executable)
+                    # install_dir is the directory containing AutoVerse.exe
+                    install_dir = current_executable_path
                     main_executable_name = "AutoVerse.exe"
 
                 args = [temp_updater_path, zip_path, install_dir, main_executable_name]
@@ -291,8 +299,6 @@ def run_app():
             except Exception as e:
                 logger.error(f"Failed to launch updater: {e}", exc_info=True)
                 QMessageBox.critical(self.window, "Update Error", f"Could not launch the updater script: {e}. Please update manually.")
-        
-        # --- ALL OTHER EXISTING METHODS OF THE CLASS ---
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")

@@ -1,4 +1,4 @@
-# .github/workflows/build-windows.yml
+# .github/workflows/windows-build.yml
 
 name: Build Windows Executable
 
@@ -31,7 +31,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "bin"
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile "ffmpeg.7z"
-          # --- THE FIX: Corrected the 7z command ---
           7z x ffmpeg.7z
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
@@ -44,12 +43,24 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
+      # --- [THE FIX FOR DOUBLE-ZIPPING] ---
+      - name: Prepare Files for Zipping
+        run: |
+          # Create a new directory to stage the files for zipping
+          mkdir staging
+          # Copy the contents of the built app folder into the staging directory
+          cp -r dist/AutoVerse_App/* staging/
+        shell: bash
+
       - name: Zip the output folder
-        run: Compress-Archive -Path dist/AutoVerse_App -DestinationPath dist/AutoVerse-Windows-App.zip
+        run: |
+          # Zip the CONTENTS of the staging directory
+          Compress-Archive -Path staging\* -DestinationPath AutoVerse-Windows-App.zip
         shell: powershell
-        
+
+      # Upload the single, correctly structured zip file
       - name: Upload Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoVerse-Windows-App
-          path: dist/AutoVerse-Windows-App.zip
+          path: AutoVerse-Windows-App.zip # We now point directly to the new zip file
