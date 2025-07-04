@@ -329,53 +329,55 @@ def run_app():
                         script_content = (
                             "#!/bin/bash\n"
                             "# AutoVerse Updater Script for macOS\n\n"
-                            "echo \"AutoVerse Updater: Starting...\"\n"
-                            "echo \"Waiting for main application to close...\"\n"
+                            'echo "AutoVerse Updater: Starting..."\n'
+                            'echo "Waiting for main application to close..."\n'
                             "sleep 3\n\n"
-                            f"echo \"Removing old application bundle at '{app_path}'...\"\n"
-                            f"rm -rf \"{app_path}\"\n\n"
-                            f"echo \"Unzipping new version from '{zip_path}' to '{install_dir}'...\"\n"
-                            f"unzip -o \"{zip_path}\" -d \"{install_dir}\"\n\n"
-                            f"echo \"Relaunching AutoVerse at '{relaunch_path}'...\"\n"
-                            # The 'open' command here is correct for launching the .app bundle
-                            f"open \"{relaunch_path}\"\n\n"
-                            "echo \"Cleaning up updater script and zip file...\"\n"
-                            f"rm \"{zip_path}\"\n"
-                            "rm -- \"$0\"\n"
+                            f'echo "Removing old application bundle at \'{app_path}\'..."\n'
+                            f'rm -rf "{app_path}"\n\n'
+                            f'echo "Unzipping new version from \'{zip_path}\' to \'{install_dir}\'..."\n'
+                            # Use -o to overwrite without prompting, which is more robust
+                            f'unzip -o "{zip_path}" -d "{install_dir}"\n\n'
+                            f'echo "Relaunching AutoVerse at \'{relaunch_path}\'..."\n'
+                            f'open "{relaunch_path}"\n\n'
+                            'echo "Cleaning up updater script and zip file..."\n'
+                            f'rm "{zip_path}"\n'
+                            'rm -- "$0"\n' # Self-delete the script
                         )
                         f.write(script_content)
 
                     os.chmod(script_path, 0o755)
 
-                    # --- [THE FIX] ---
-                    # We must EXECUTE the script with a shell, not just 'open' it with a default app.
-                    subprocess.Popen(['bash', script_path])
-                    # -------------------
+                    # --- [THE DEFINITIVE FIX] ---
+                    # This command tells the OS to open the script with the Terminal app.
+                    # This launches a NEW, independent terminal session that will NOT be killed
+                    # when the main AutoVerse application exits.
+                    subprocess.Popen(['open', '-a', 'Terminal', script_path])
+                    # ----------------------------
 
                 elif sys.platform == 'win32':
-                    # The Windows logic was already correct and does not need to be changed.
+                    # --- Windows Script Logic (remains correct) ---
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
                         script_path = f.name
                         script_content = (
-                            "@echo off\n"
-                            "echo AutoVerse Updater: Starting...\n"
-                            "timeout /t 3 /nobreak > NUL\n\n"
-                            f"echo Removing old application files from \"{install_dir}\"...\n"
-                            f"del /s /q \"{install_dir}\\*.*\"\n"
-                            f"for /d %%p in (\"{install_dir}\\*.*\") do rd \"%%p\" /s /q\n\n"
-                            f"echo Extracting new version from \"{zip_path}\"...\n"
-                            f"tar -xf \"{zip_path}\" -C \"{install_dir}\"\n\n"
-                            "echo Moving extracted files up from 'AutoVerse_App' folder...\n"
-                            f"move \"{install_dir}\\AutoVerse_App\\*.*\" \"{install_dir}\\\"\n"
-                            f"rmdir /s /q \"{install_dir}\\AutoVerse_App\"\n\n"
-                            "echo Relaunching AutoVerse...\n"
-                            f"start \"\" \"{relaunch_path}\"\n\n"
-                            "echo Cleaning up...\n"
-                            f"del \"{zip_path}\"\n"
-                            "del \"%~f0\"\n"
+                            '@echo off\n'
+                            'echo AutoVerse Updater: Starting...\n'
+                            'timeout /t 3 /nobreak > NUL\n\n'
+                            f'echo Removing old application files from "{install_dir}"...\n'
+                            f'del /s /q "{install_dir}\\*.*"\n'
+                            f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n'
+                            f'echo Extracting new version from "{zip_path}"...\n'
+                            f'tar -xf "{zip_path}" -C "{install_dir}"\n\n'
+                            'echo Moving extracted files up from "AutoVerse_App" folder...\n'
+                            f'move "{install_dir}\\AutoVerse_App\\*.*" "{install_dir}\\"\n'
+                            f'rmdir /s /q "{install_dir}\\AutoVerse_App"\n\n'
+                            'echo Relaunching AutoVerse...\n'
+                            f'start "" "{relaunch_path}"\n\n'
+                            'echo Cleaning up...\n'
+                            f'del "{zip_path}"\n'
+                            'del "%~f0"\n'
                         )
                         f.write(script_content)
                     subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
