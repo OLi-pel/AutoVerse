@@ -309,63 +309,64 @@ def run_app():
 
         def trigger_updater(self, zip_path):
             """
-            Creates and launches a native OS script (.sh or .bat) that uses a robust
-            update strategy to avoid macOS App Translocation issues.
+            Creates and launches a native OS script that intelligently finds the
+            .app bundle on macOS and works with the clean Windows artifact.
             """
             try:
-                install_dir = ""
-                relaunch_path = ""
                 script_path = ""
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- [THE DEFINITIVE macOS SCRIPT FIX] ---
-                    # This new script installs the app to the standard /Applications folder,
-                    # which bypasses any "Read-only file system" errors from App Translocation.
-                    
-                    # The final, correct location for the application.
+                    # --- [THE DEFINITIVE macOS SCRIPT] ---
                     final_app_path = "/Applications/AutoVerse.app"
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
+                        # This new script finds the .app bundle instead of assuming its name.
                         script_content = (
                             "#!/bin/bash\n\n"
                             'echo "--- AutoVerse Updater ---\n"\n'
-                            'echo "Waiting for main application to close..."\n'
+                            "echo \"Waiting 3 seconds for app to close...\"\n"
                             "sleep 3\n\n"
                             # Define paths
                             f'ZIP_PATH="{zip_path}"\n'
                             f'FINAL_APP_PATH="{final_app_path}"\n'
                             'TEMP_DIR=$(mktemp -d)\n\n'
-                            # Unzip to a temporary directory first
-                            'echo "Unzipping new version to a temporary location..."\n'
-                            f'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
-                            # Check if an old version exists in /Applications and remove it
+                            # Unzip to a temporary directory
+                            'echo "Unzipping new version...\"\n'
+                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
+                            # Find the .app bundle within the unzipped temp directory
+                            'echo "Locating new application bundle..."\n'
+                            'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -depth 1)\n\n'
+                            # Check if the .app bundle was found
+                            'if [ -z "$SOURCE_APP_PATH" ]; then\n'
+                            '    echo "ERROR: Could not find .app bundle in the unzipped archive."\n'
+                            '    exit 1\n'
+                            'fi\n\n'
+                            'echo "Found bundle at: $SOURCE_APP_PATH"\n'
+                            # Remove the old version if it exists
                             'if [ -d "$FINAL_APP_PATH" ]; then\n'
                             '    echo "Removing old version from /Applications..."\n'
                             '    rm -rf "$FINAL_APP_PATH"\n'
                             'fi\n\n'
-                            # Move the new version into place
+                            # Move the new version into the /Applications folder
                             'echo "Installing new version to /Applications..."\n'
-                            # The zip file from the build contains AutoVerse.app directly.
-                            'mv "$TEMP_DIR/AutoVerse.app" "$FINAL_APP_PATH"\n\n'
-                            # Relaunch from the new, correct location
+                            'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\n\n'
                             'echo "Relaunching AutoVerse..."\n'
                             'open "$FINAL_APP_PATH"\n\n'
-                            # Clean up temporary files
+                            # Clean up
                             'echo "Cleaning up..."\n'
                             'rm -rf "$TEMP_DIR"\n'
                             'rm "$ZIP_PATH"\n'
-                            'rm -- "$0"\n' # Self-delete the script
+                            'rm -- "$0"\n' # Self-delete script
                         )
                         f.write(script_content)
 
                     os.chmod(script_path, 0o755)
-                    # This correctly launches the script in a new, independent Terminal session.
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
                 
                 elif sys.platform == 'win32':
-                    # The Windows logic remains the same.
+                    # [CORRECT AND FINAL] This script assumes a clean zip and works.
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
@@ -378,7 +379,7 @@ def run_app():
                             f'echo Removing old application files from "{install_dir}"...\n'
                             f'del /s /q "{install_dir}\\*.*"\n'
                             f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n'
-                            f'echo Extracting new version from "{zip_path}"...\n'
+                            f'echo Extracting new version...\n'
                             f'tar -xf "{zip_path}" -C "{install_dir}"\n\n'
                             'echo Relaunching AutoVerse...\n'
                             f'start "" "{relaunch_path}"\n\n'
@@ -388,7 +389,7 @@ def run_app():
                         )
                         f.write(script_content)
                     subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
-                    
+                
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()
 

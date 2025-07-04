@@ -1,6 +1,5 @@
-# .github/workflows/macos-build.yml
-
 name: Build macOS Application
+
 on:
   push:
     branches: [ "main" ]
@@ -9,38 +8,46 @@ on:
 jobs:
   build:
     runs-on: macos-14
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
+          
       - name: Install build dependencies using Homebrew
         run: brew install portaudio
+      
       - name: Download and prepare static FFmpeg
         run: |
           mkdir -p bin
           curl -L "https://www.osxexperts.net/ffmpeg61arm.zip" -o ffmpeg.zip
+          # --- THE FIX ---
+          # Add the -o flag to unzip to overwrite without prompting
           unzip -o -j ffmpeg.zip 'ffmpeg' -d bin/
+
       - name: Create Valid Placeholder Icon
         run: |
           mkdir -p assets
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      # --- [THE DEFINITIVE FIX] ---
-      # REMOVED the "ditto" zipping command completely.
+      - name: Zip the .app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse-macOS-App.zip
 
       - name: Upload Application Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoVerse-macOS-App
-          # Point DIRECTLY to the .app folder. The action will zip it correctly.
-          path: dist/AutoVerse.app
+          path: dist/AutoVerse-macOS-App.zip
