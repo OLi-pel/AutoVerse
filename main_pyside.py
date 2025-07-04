@@ -309,8 +309,8 @@ def run_app():
 
         def trigger_updater(self, zip_path):
             """
-            Creates and launches a native OS script (.sh or .bat) to perform
-            the update, ensuring it works robustly without dependency issues.
+            Creates and launches a native OS script (.sh or .bat) that uses a robust
+            update strategy to avoid macOS App Translocation issues.
             """
             try:
                 install_dir = ""
@@ -319,43 +319,53 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- macOS Script Logic ---
-                    install_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', '..', '..'))
-                    app_path = os.path.join(install_dir, "AutoVerse.app")
-                    relaunch_path = app_path
-
+                    # --- [THE DEFINITIVE macOS SCRIPT FIX] ---
+                    # This new script installs the app to the standard /Applications folder,
+                    # which bypasses any "Read-only file system" errors from App Translocation.
+                    
+                    # The final, correct location for the application.
+                    final_app_path = "/Applications/AutoVerse.app"
+                    
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
                         script_content = (
-                            "#!/bin/bash\n"
-                            "# AutoVerse Updater Script for macOS\n\n"
-                            'echo "AutoVerse Updater: Starting..."\n'
+                            "#!/bin/bash\n\n"
+                            'echo "--- AutoVerse Updater ---\n"\n'
                             'echo "Waiting for main application to close..."\n'
                             "sleep 3\n\n"
-                            f'echo "Removing old application bundle at \'{app_path}\'..."\n'
-                            f'rm -rf "{app_path}"\n\n'
-                            f'echo "Unzipping new version from \'{zip_path}\' to \'{install_dir}\'..."\n'
-                            # Use -o to overwrite without prompting, which is more robust
-                            f'unzip -o "{zip_path}" -d "{install_dir}"\n\n'
-                            f'echo "Relaunching AutoVerse at \'{relaunch_path}\'..."\n'
-                            f'open "{relaunch_path}"\n\n'
-                            'echo "Cleaning up updater script and zip file..."\n'
-                            f'rm "{zip_path}"\n'
+                            # Define paths
+                            f'ZIP_PATH="{zip_path}"\n'
+                            f'FINAL_APP_PATH="{final_app_path}"\n'
+                            'TEMP_DIR=$(mktemp -d)\n\n'
+                            # Unzip to a temporary directory first
+                            'echo "Unzipping new version to a temporary location..."\n'
+                            f'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
+                            # Check if an old version exists in /Applications and remove it
+                            'if [ -d "$FINAL_APP_PATH" ]; then\n'
+                            '    echo "Removing old version from /Applications..."\n'
+                            '    rm -rf "$FINAL_APP_PATH"\n'
+                            'fi\n\n'
+                            # Move the new version into place
+                            'echo "Installing new version to /Applications..."\n'
+                            # The zip file from the build contains AutoVerse.app directly.
+                            'mv "$TEMP_DIR/AutoVerse.app" "$FINAL_APP_PATH"\n\n'
+                            # Relaunch from the new, correct location
+                            'echo "Relaunching AutoVerse..."\n'
+                            'open "$FINAL_APP_PATH"\n\n'
+                            # Clean up temporary files
+                            'echo "Cleaning up..."\n'
+                            'rm -rf "$TEMP_DIR"\n'
+                            'rm "$ZIP_PATH"\n'
                             'rm -- "$0"\n' # Self-delete the script
                         )
                         f.write(script_content)
 
                     os.chmod(script_path, 0o755)
-
-                    # --- [THE DEFINITIVE FIX] ---
-                    # This command tells the OS to open the script with the Terminal app.
-                    # This launches a NEW, independent terminal session that will NOT be killed
-                    # when the main AutoVerse application exits.
+                    # This correctly launches the script in a new, independent Terminal session.
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
-                    # ----------------------------
-
+                
                 elif sys.platform == 'win32':
-                    # --- Windows Script Logic (remains correct) ---
+                    # The Windows logic remains the same.
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
