@@ -326,7 +326,6 @@ def run_app():
 
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
-                        # [COSMETIC FIX] Break the long f-string into smaller parts
                         script_content = (
                             "#!/bin/bash\n"
                             "# AutoVerse Updater Script for macOS\n\n"
@@ -338,47 +337,50 @@ def run_app():
                             f"echo \"Unzipping new version from '{zip_path}' to '{install_dir}'...\"\n"
                             f"unzip -o \"{zip_path}\" -d \"{install_dir}\"\n\n"
                             f"echo \"Relaunching AutoVerse at '{relaunch_path}'...\"\n"
+                            # The 'open' command here is correct for launching the .app bundle
                             f"open \"{relaunch_path}\"\n\n"
-                            "echo \"Cleaning up updater script...\"\n"
+                            "echo \"Cleaning up updater script and zip file...\"\n"
+                            f"rm \"{zip_path}\"\n"
                             "rm -- \"$0\"\n"
                         )
                         f.write(script_content)
 
                     os.chmod(script_path, 0o755)
-                    subprocess.Popen(['open', script_path])
+
+                    # --- [THE FIX] ---
+                    # We must EXECUTE the script with a shell, not just 'open' it with a default app.
+                    subprocess.Popen(['bash', script_path])
+                    # -------------------
 
                 elif sys.platform == 'win32':
-                    # --- Windows Script Logic ---
+                    # The Windows logic was already correct and does not need to be changed.
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
                         script_path = f.name
-                        # [COSMETIC FIX] Break the long f-string into smaller parts
                         script_content = (
                             "@echo off\n"
                             "echo AutoVerse Updater: Starting...\n"
-                            "echo Waiting for main application to close...\n"
                             "timeout /t 3 /nobreak > NUL\n\n"
                             f"echo Removing old application files from \"{install_dir}\"...\n"
-                            f"del /q \"{install_dir}\\*.*\"\n"
+                            f"del /s /q \"{install_dir}\\*.*\"\n"
                             f"for /d %%p in (\"{install_dir}\\*.*\") do rd \"%%p\" /s /q\n\n"
                             f"echo Extracting new version from \"{zip_path}\"...\n"
                             f"tar -xf \"{zip_path}\" -C \"{install_dir}\"\n\n"
                             "echo Moving extracted files up from 'AutoVerse_App' folder...\n"
                             f"move \"{install_dir}\\AutoVerse_App\\*.*\" \"{install_dir}\\\"\n"
-                            f"rmdir \"{install_dir}\\AutoVerse_App\"\n\n"
+                            f"rmdir /s /q \"{install_dir}\\AutoVerse_App\"\n\n"
                             "echo Relaunching AutoVerse...\n"
                             f"start \"\" \"{relaunch_path}\"\n\n"
-                            "echo Cleaning up updater script and zip file...\n"
+                            "echo Cleaning up...\n"
                             f"del \"{zip_path}\"\n"
                             "del \"%~f0\"\n"
                         )
                         f.write(script_content)
-
                     subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
                 
-                logger.info(f"Update script written to '{script_path}'. Launching update process.")
+                logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()
 
             except Exception as e:
