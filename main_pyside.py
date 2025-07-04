@@ -380,9 +380,6 @@ def run_app():
                             f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n'
                             f'echo Extracting new version from "{zip_path}"...\n'
                             f'tar -xf "{zip_path}" -C "{install_dir}"\n\n'
-                            'echo Moving extracted files up from "AutoVerse_App" folder...\n'
-                            f'move "{install_dir}\\AutoVerse_App\\*.*" "{install_dir}\\"\n'
-                            f'rmdir /s /q "{install_dir}\\AutoVerse_App"\n\n'
                             'echo Relaunching AutoVerse...\n'
                             f'start "" "{relaunch_path}"\n\n'
                             'echo Cleaning up...\n'
@@ -391,7 +388,7 @@ def run_app():
                         )
                         f.write(script_content)
                     subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
-                
+                    
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()
 

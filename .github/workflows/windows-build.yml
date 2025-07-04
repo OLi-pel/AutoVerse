@@ -1,7 +1,6 @@
 # .github/workflows/windows-build.yml
 
 name: Build Windows Executable
-
 on:
   push:
     branches: [ "main" ]
@@ -10,23 +9,19 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
-
       - name: Create Valid Placeholder Icon
         run: |
           New-Item -ItemType Directory -Force -Path "assets"
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\logo.ico"
         shell: powershell
-        
       - name: Download and prepare FFmpeg
         run: |
           New-Item -ItemType Directory -Force -Path "bin"
@@ -34,33 +29,19 @@ jobs:
           7z x ffmpeg.7z
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
-
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      # --- [THE FIX FOR DOUBLE-ZIPPING] ---
-      - name: Prepare Files for Zipping
-        run: |
-          # Create a new directory to stage the files for zipping
-          mkdir staging
-          # Copy the contents of the built app folder into the staging directory
-          cp -r dist/AutoVerse_App/* staging/
-        shell: bash
+      # --- [THE DEFINITIVE FIX] ---
+      # REMOVED the "staging" and "Compress-Archive" commands completely.
 
-      - name: Zip the output folder
-        run: |
-          # Zip the CONTENTS of the staging directory
-          Compress-Archive -Path staging\* -DestinationPath AutoVerse-Windows-App.zip
-        shell: powershell
-
-      # Upload the single, correctly structured zip file
       - name: Upload Executable Artifact
         uses: actions/upload-artifact@v4
         with:
           name: AutoVerse-Windows-App
-          path: AutoVerse-Windows-App.zip # We now point directly to the new zip file
+          # Point DIRECTLY to the build folder. The action will zip its contents.
+          path: dist/AutoVerse_App
