@@ -1,3 +1,5 @@
+# .github/workflows/macos-build.yml
+
 name: Build macOS Application
 
 on:
@@ -19,35 +21,61 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
           
-      - name: Install build dependencies using Homebrew
-        run: brew install portaudio
+      - name: Install macOS build dependencies via Homebrew
+        run: |
+          brew install portaudio
+          brew install create-dmg
       
       - name: Download and prepare static FFmpeg
         run: |
           mkdir -p bin
           curl -L "https://www.osxexperts.net/ffmpeg61arm.zip" -o ffmpeg.zip
-          # --- THE FIX ---
-          # Add the -o flag to unzip to overwrite without prompting
           unzip -o -j ffmpeg.zip 'ffmpeg' -d bin/
 
-      - name: Create Valid Placeholder Icon
+      - name: Create Placeholders for Build
         run: |
           mkdir -p assets
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
+          # Ensure dmg_background.png exists in your assets folder
+          if [ ! -f "assets/dmg_background.png" ]; then
+             echo "Error: assets/dmg_background.png not found."
+             # As a fallback, create a simple black placeholder image
+             convert -size 640x440 xc:black assets/dmg_background.png
+          fi
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build with PyInstaller
+      - name: Build .app with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      - name: Zip the .app bundle
-        run: ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse-macOS-App.zip
+      # --- [STEP 1: Create the .zip for the auto-updater] ---
+      - name: Zip the .app bundle for the updater
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse-macOS-App.zip
 
-      - name: Upload Application Artifact
+      # --- [STEP 2: Create the .dmg for manual installation] ---
+      - name: Create DMG Installer
+        run: |
+          create-dmg \
+            --volname "AutoVerse Installer" \
+            --window-pos 200 120 \
+            --window-size 640 440 \
+            --icon-size 120 \
+            --text-size 14 \
+            --background "assets/dmg_background.png" \
+            --app-drop-link 220 300 \
+            --icon "AutoVerse.app" 220 120 \
+            "dist/AutoVerse-macOS-Installer.dmg" \
+            "dist/AutoVerse.app"
+
+      # --- [STEP 3: Upload BOTH artifacts] ---
+      - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AutoVerse-macOS-App
-          path: dist/AutoVerse-macOS-App.zip
+          name: macOS-Release-Artifacts
+          path: |
+            dist/AutoVerse-macOS-Installer.dmg
+            dist/AutoVerse-macOS-App.zip
