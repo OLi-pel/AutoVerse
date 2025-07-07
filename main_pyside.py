@@ -317,32 +317,59 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- [THE DEFINITIVE macOS SCRIPT] ---
+                    # --- [THE DEFINITIVE macOS SCRIPT - v2] ---
                     final_app_path = "/Applications/AutoVerse.app"
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
-                        # This new script finds the .app bundle instead of assuming its name.
+                        # This script now uses a loop to recursively unzip archives until the .app is found.
                         script_content = (
                             "#!/bin/bash\n\n"
                             'echo "--- AutoVerse Updater ---\n"\n'
                             "echo \"Waiting 3 seconds for app to close...\"\n"
                             "sleep 3\n\n"
-                            # Define paths
+                            # --- Define paths ---
                             f'ZIP_PATH="{zip_path}"\n'
                             f'FINAL_APP_PATH="{final_app_path}"\n'
                             'TEMP_DIR=$(mktemp -d)\n\n'
-                            # Unzip to a temporary directory
-                            'echo "Unzipping new version...\"\n'
+                            
+                            'echo "Unzipping main downloaded archive..."\n'
                             'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
-                            # Find the .app bundle within the unzipped temp directory
-                            'echo "Locating new application bundle..."\n'
-                            'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -depth 1)\n\n'
-                            # Check if the .app bundle was found
-                            'if [ -z "$SOURCE_APP_PATH" ]; then\n'
-                            '    echo "ERROR: Could not find .app bundle in the unzipped archive."\n'
+                            
+                            # --- KEY IMPROVEMENT: THE UNZIP LOOP ---
+                            # Loop as long as we haven't found the .app bundle.
+                            "while true; do\n"
+                            '    echo "Searching for application bundle..."\n'
+                            '    SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n\n'
+                            
+                            "    # If we found the .app, exit the loop.\n"
+                            "    if [ -n \"$SOURCE_APP_PATH\" ]; then\n"
+                            "        break\n"
+                            "    fi\n\n"
+                            
+                            "    # If not, find the next .zip file to extract.\n"
+                            '    echo "No .app found yet. Looking for a nested .zip to extract..."\n'
+                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\n\n'
+
+                            "    # If a nested zip exists, unzip it and REMOVE it to prevent looping.\n"
+                            "    if [ -n \"$NESTED_ZIP\" ]; then\n"
+                            '        echo "Found nested archive: $NESTED_ZIP. Unpacking..."\n'
+                            '        unzip -o "$NESTED_ZIP" -d "$TEMP_DIR"\n'
+                            '        rm "$NESTED_ZIP"\n' # Crucial to prevent infinite loop
+                            "    else\n"
+                            "        # If there's no .app and no more .zips, we must fail. Exit loop.\n"
+                            '        echo "No more archives to unpack."\n'
+                            "        break\n"
+                            "    fi\n"
+                            "done\n\n"
+
+                            # --- Final check and installation ---
+                            'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\n'
+                            '    echo "ERROR: Could not find a valid .app bundle in the archive. Please update manually."\n'
+                            '    sleep 10\n' # Give user time to see the error.
                             '    exit 1\n'
                             'fi\n\n'
+
                             'echo "Found bundle at: $SOURCE_APP_PATH"\n'
                             # Remove the old version if it exists
                             'if [ -d "$FINAL_APP_PATH" ]; then\n'
@@ -355,7 +382,7 @@ def run_app():
                             'echo "Relaunching AutoVerse..."\n'
                             'open "$FINAL_APP_PATH"\n\n'
                             # Clean up
-                            'echo "Cleaning up..."\n'
+                            'echo "Cleaning up temporary files..."\n'
                             'rm -rf "$TEMP_DIR"\n'
                             'rm "$ZIP_PATH"\n'
                             'rm -- "$0"\n' # Self-delete script
@@ -366,7 +393,7 @@ def run_app():
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
                 
                 elif sys.platform == 'win32':
-                    # [CORRECT AND FINAL] This script assumes a clean zip and works.
+                    # [The Windows script is unchanged and should work correctly]
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
@@ -395,7 +422,7 @@ def run_app():
 
             except Exception as e:
                 logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
-                QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
+                QMessageBox.critical(self.main_window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
