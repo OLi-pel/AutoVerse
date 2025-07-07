@@ -25,6 +25,8 @@ jobs:
         run: |
           brew install portaudio
           brew install create-dmg
+          # --- [THE FIX]: Install ImageMagick to get the 'convert' command ---
+          brew install imagemagick
       
       - name: Download and prepare static FFmpeg
         run: |
@@ -33,14 +35,14 @@ jobs:
           unzip -o -j ffmpeg.zip 'ffmpeg' -d bin/
 
       - name: Create Placeholders for Build
+        # This step will now succeed because 'convert' will be available.
+        # It's still best to add 'dmg_background.png' to your repo's 'assets' folder!
         run: |
           mkdir -p assets
           curl -L "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.icns" -o "assets/logo.icns"
-          # Ensure dmg_background.png exists in your assets folder
           if [ ! -f "assets/dmg_background.png" ]; then
-             echo "Error: assets/dmg_background.png not found."
-             # As a fallback, create a simple black placeholder image
-             convert -size 640x440 xc:black assets/dmg_background.png
+             echo "Warning: assets/dmg_background.png not found. Creating a placeholder."
+             convert -size 640x440 xc:black -gravity center -fill white -pointsize 48 -annotate 0 "AutoVerse" assets/dmg_background.png
           fi
 
       - name: Install Python dependencies
@@ -51,12 +53,10 @@ jobs:
       - name: Build .app with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      # --- [STEP 1: Create the .zip for the auto-updater] ---
       - name: Zip the .app bundle for the updater
         run: |
           ditto -c -k --sequesterRsrc --keepParent dist/AutoVerse.app dist/AutoVerse-macOS-App.zip
 
-      # --- [STEP 2: Create the .dmg for manual installation] ---
       - name: Create DMG Installer
         run: |
           create-dmg \
@@ -71,7 +71,6 @@ jobs:
             "dist/AutoVerse-macOS-Installer.dmg" \
             "dist/AutoVerse.app"
 
-      # --- [STEP 3: Upload BOTH artifacts] ---
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
