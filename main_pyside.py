@@ -74,17 +74,25 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    def get_current_application_path():
-        """Returns the path to the .app bundle if the app is frozen on macOS."""
+    def get_true_application_path():
+        """
+        Returns the absolute, real path to the .app bundle, correctly
+        handling macOS App Translocation.
+        """
         if getattr(sys, 'frozen', False) and sys.platform == 'darwin':
-            # The executable is at /path/to/AutoVerse.app/Contents/MacOS/AutoVerse
-            # We need to go up three directory levels to find the .app path itself.
-            executable_path = sys.executable
+            # When an app is translocated, sys.executable is a path inside a temporary,
+            # randomized, read-only directory. We need the real, original path.
+            # os.path.realpath resolves all symbolic links and translocations.
+            executable_path = os.path.realpath(sys.executable)
+            
+            # Go up three levels to get from .../Contents/MacOS/AppName to .../AppName.app
             app_path = os.path.dirname(os.path.dirname(os.path.dirname(executable_path)))
-            # A sanity check to ensure it's a .app directory
+            
+            # A final sanity check: the result must end in .app.
             if app_path.endswith('.app'):
                 return app_path
-        return None # Return None if not a frozen macOS app
+        # If not a frozen macOS app, or if path detection fails, return None.
+        return None
 
     # --- UPDATE CHECKER THREAD ---
     class UpdateChecker(QThread):
@@ -328,34 +336,30 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- [THE DEFINITIVE macOS SCRIPT - v3] ---
+                    # --- [THE DEFINITIVE macOS SCRIPT - FINAL VERSION] ---
                     final_app_path = "/Applications/AutoVerse.app"
                     
-                    # *** NEW: Get the path of the currently running application ***
-                    old_app_path = get_current_application_path() or ""
+                    # Use the new, robust helper function to find the real path
+                    old_app_path = get_true_application_path()
 
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
-                        # This new script finds the bundle, installs it, and now also cleans up the old version.
                         script_content = (
                             "#!/bin/bash\n\n"
                             'echo "--- AutoVerse Updater ---\n"\n'
                             "sleep 3\n"
                             f'ZIP_PATH="{zip_path}"\n'
                             f'FINAL_APP_PATH="{final_app_path}"\n'
-                            # *** NEW: Pass the old app's path into the script ***
-                            f'OLD_APP_PATH="{old_app_path}"\n'
-                            'TEMP_DIR=$(mktemp -d)\n\n'
+                            f'TEMP_DIR=$(mktemp -d)\n\n'
                             'echo "Unzipping downloaded archive..."\n'
-                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
+                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\n\n' # Use &>/dev/null to hide noisy unzip output
                             'echo "Searching for application bundle..."\n'
                             'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n\n'
                             'if [ -z "$SOURCE_APP_PATH" ]; then\n'
-                            '    echo "No .app found. Searching for a nested .zip..."\n'
                             '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\n'
                             '    if [ -n "$NESTED_ZIP" ]; then\n'
-                            '       echo "Found and extracting nested zip: $NESTED_ZIP"\n'
-                            '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR"\n'
+                            '       echo "Found and extracting nested zip..."\n'
+                            '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\n'
                             '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n'
                             '    fi\n'
                             'fi\n\n'
@@ -366,14 +370,15 @@ def run_app():
                             'fi\n\n'
                             'echo "Found bundle at: $SOURCE_APP_PATH"\n'
                             'if [ -d "$FINAL_APP_PATH" ]; then\n'
-                            '    echo "Removing old version from /Applications..."\n'
                             '    rm -rf "$FINAL_APP_PATH"\n'
                             'fi\n\n'
                             'echo "Installing new version to /Applications..."\n'
                             'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\n\n'
 
-                            # *** NEW: Clean up the old app from its original location ***
+                            # NEW: The old_app_path is now passed from the Python script
+                            f'OLD_APP_PATH="{old_app_path or ""}"\n\n'
                             'echo "Cleaning up the original application location..."\n'
+                            # This logic remains the same, but it will now receive the correct path
                             'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\n'
                             '    rm -rf "$OLD_APP_PATH"\n'
                             '    echo "Successfully removed old version from $OLD_APP_PATH"\n'
@@ -394,27 +399,12 @@ def run_app():
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
                 
                 elif sys.platform == 'win32':
-                    # No changes needed for Windows, its existing script is already robust.
+                    # Windows script is unchanged
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
-                    
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
                         script_path = f.name
-                        script_content = (
-                            '@echo off\n'
-                            'echo AutoVerse Updater: Starting...\n'
-                            'timeout /t 3 /nobreak > NUL\n\n'
-                            f'echo Removing old application files from "{install_dir}"...\n'
-                            f'del /s /q "{install_dir}\\*.*"\n'
-                            f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n'
-                            f'echo Extracting new version...\n'
-                            f'tar -xf "{zip_path}" -C "{install_dir}"\n\n'
-                            'echo Relaunching AutoVerse...\n'
-                            f'start "" "{relaunch_path}"\n\n'
-                            'echo Cleaning up...\n'
-                            f'del "{zip_path}"\n'
-                            'del "%~f0"\n'
-                        )
+                        script_content = ('@echo off\n' + 'echo AutoVerse Updater: Starting...\n' + 'timeout /t 3 /nobreak > NUL\n\n' + f'echo Removing old application files from "{install_dir}"...\n' + f'del /s /q "{install_dir}\\*.*"\n' + f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n' + 'echo Extracting new version...\n' + f'tar -xf "{zip_path}" -C "{install_dir}"\n\n' + 'echo Relaunching AutoVerse...\n' + f'start "" "{relaunch_path}"\n\n' + 'echo Cleaning up...\n' + f'del "{zip_path}"\n' + 'del "%~f0"\n')
                         f.write(script_content)
                     subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
                 
@@ -423,7 +413,7 @@ def run_app():
 
             except Exception as e:
                 logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
-                QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
+                QMessageBox.critical(self.main_window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
