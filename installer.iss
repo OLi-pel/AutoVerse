@@ -1,13 +1,13 @@
-; installer.iss - Inno Setup script for AutoVerse
+; installer.iss
 
 [Setup]
 AppName=AutoVerse
-AppVersion=1.0.2 
-; ^ Note: For now, you must manually update this version number in this file
-;   when you make a new release. We can automate this later if needed.
+AppVersion=1.0.2
+; --- [THE FIX]: Specify the output directory ---
+OutputDir=dist
+OutputBaseFilename=AutoVerse-Setup
 DefaultDirName={autopf}\AutoVerse
 DefaultGroupName=AutoVerse
-OutputBaseFilename=AutoVerse-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
