@@ -74,24 +74,48 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
+
     def get_true_application_path():
         """
         Returns the absolute, real path to the .app bundle, correctly
-        handling macOS App Translocation.
+        handling macOS App Translocation by actively searching up the directory tree.
         """
-        if getattr(sys, 'frozen', False) and sys.platform == 'darwin':
-            # When an app is translocated, sys.executable is a path inside a temporary,
-            # randomized, read-only directory. We need the real, original path.
-            # os.path.realpath resolves all symbolic links and translocations.
+        if not (getattr(sys, 'frozen', False) and sys.platform == 'darwin'):
+            # Only applicable for frozen macOS apps.
+            return None
+
+        try:
+            # Get the canonical path of the executable, resolving symlinks/translocation.
             executable_path = os.path.realpath(sys.executable)
             
-            # Go up three levels to get from .../Contents/MacOS/AppName to .../AppName.app
-            app_path = os.path.dirname(os.path.dirname(os.path.dirname(executable_path)))
+            # Start walking up from the executable's directory.
+            current_path = os.path.dirname(executable_path)
             
-            # A final sanity check: the result must end in .app.
-            if app_path.endswith('.app'):
-                return app_path
-        # If not a frozen macOS app, or if path detection fails, return None.
+            # Loop up to 6 levels deep, which is more than enough.
+            # This prevents an infinite loop in case of a strange filesystem.
+            for _ in range(6):
+                # If the current directory path ends with .app, we've found it!
+                if current_path.endswith('.app'):
+                    return current_path
+                
+                # Otherwise, go up one level.
+                parent_path = os.path.dirname(current_path)
+                
+                # If we've reached the root ('/') and haven't found it, stop.
+                if parent_path == current_path:
+                    break
+                
+                current_path = parent_path
+                
+        except Exception as e:
+            # Log any unexpected errors during path resolution.
+            # We need the logger to be configured to see this.
+            try:
+                logging.error(f"Error while trying to determine application path: {e}")
+            except:
+                pass # Ignore if logging isn't set up.
+                
+        # If the loop finishes without finding the .app bundle, return None.
         return None
 
     # --- UPDATE CHECKER THREAD ---
