@@ -33,25 +33,34 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      # --- [STEP 1: Create archive for manual "portable" install] ---
-      - name: Archive Executable for Manual Installation
-        run: Compress-Archive -Path dist/AutoVerse_App -DestinationPath dist/AutoVerse-Windows-Portable.zip
+      # --- [STEP 1: Install Inno Setup using Chocolatey package manager] ---
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
         shell: powershell
 
-      # --- [STEP 2: Create archive specifically for the auto-updater] ---
-      # Your updater expects a zip of the CONTENTS, not the folder itself.
-      - name: Archive for Auto-Updater
+      # --- [STEP 2: Build the .exe installer using the script we created] ---
+      - name: Build Installer with Inno Setup
+        run: |
+          $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $ISCC "installer.iss"
+        # The output installer will be in a new 'dist/Output' directory
+        shell: powershell
+
+      # --- [STEP 3: Create the .zip file for the auto-updater] ---
+      - name: Create Zip Archive for Auto-Updater
+        # This zips the CONTENTS of the PyInstaller output folder, which is what your updater expects
         run: Compress-Archive -Path dist/AutoVerse_App/* -DestinationPath dist/AutoVerse-Windows-App.zip
         shell: powershell
-
-      # --- [STEP 3: Upload BOTH artifacts] ---
+        
+      # --- [STEP 4: Upload both the installer and the zip file] ---
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Release-Artifacts
           path: |
-            dist/AutoVerse-Windows-Portable.zip
+            dist/Output/AutoVerse-Setup.exe
             dist/AutoVerse-Windows-App.zip
