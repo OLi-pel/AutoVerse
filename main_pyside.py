@@ -310,82 +310,83 @@ def run_app():
         def trigger_updater(self, zip_path):
             """
             Creates and launches a native OS script that intelligently finds the
-            .app bundle on macOS and works with the clean Windows artifact.
+            .app bundle, installs it, and cleans up the previously running version.
             """
             try:
                 script_path = ""
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- [THE DEFINITIVE macOS SCRIPT - v2] ---
+                    # --- [THE DEFINITIVE macOS SCRIPT - v3] ---
                     final_app_path = "/Applications/AutoVerse.app"
                     
+                    # --- KEY CHANGE: Determine the path of the currently running .app bundle ---
+                    current_app_path = ""
+                    if getattr(sys, 'frozen', False):
+                        # For a PyInstaller macOS bundle, sys.executable is inside the .app structure.
+                        # .../AutoVerse.app/Contents/MacOS/AutoVerse
+                        # We need to go up three levels to get the path to "AutoVerse.app".
+                        executable_dir = os.path.dirname(sys.executable)
+                        current_app_path = os.path.abspath(os.path.join(executable_dir, "..", ".."))
+
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
-                        # This script now uses a loop to recursively unzip archives until the .app is found.
                         script_content = (
                             "#!/bin/bash\n\n"
                             'echo "--- AutoVerse Updater ---\n"\n'
                             "echo \"Waiting 3 seconds for app to close...\"\n"
                             "sleep 3\n\n"
-                            # --- Define paths ---
+                            # --- Define all paths, including the one for the running app ---
                             f'ZIP_PATH="{zip_path}"\n'
                             f'FINAL_APP_PATH="{final_app_path}"\n'
+                            f'RUNNING_APP_PATH="{current_app_path}"\n' # Path to the app we need to clean up
                             'TEMP_DIR=$(mktemp -d)\n\n'
                             
                             'echo "Unzipping main downloaded archive..."\n'
                             'unzip -o "$ZIP_PATH" -d "$TEMP_DIR"\n\n'
                             
-                            # --- KEY IMPROVEMENT: THE UNZIP LOOP ---
-                            # Loop as long as we haven't found the .app bundle.
+                            # --- The unzip loop (unchanged, as it works well) ---
                             "while true; do\n"
-                            '    echo "Searching for application bundle..."\n'
-                            '    SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n\n'
-                            
-                            "    # If we found the .app, exit the loop.\n"
-                            "    if [ -n \"$SOURCE_APP_PATH\" ]; then\n"
-                            "        break\n"
-                            "    fi\n\n"
-                            
-                            "    # If not, find the next .zip file to extract.\n"
-                            '    echo "No .app found yet. Looking for a nested .zip to extract..."\n'
-                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\n\n'
-
-                            "    # If a nested zip exists, unzip it and REMOVE it to prevent looping.\n"
+                            '    SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n'
+                            "    if [ -n \"$SOURCE_APP_PATH\" ]; then break; fi\n"
+                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\n'
                             "    if [ -n \"$NESTED_ZIP\" ]; then\n"
-                            '        echo "Found nested archive: $NESTED_ZIP. Unpacking..."\n'
-                            '        unzip -o "$NESTED_ZIP" -d "$TEMP_DIR"\n'
-                            '        rm "$NESTED_ZIP"\n' # Crucial to prevent infinite loop
+                            '        unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" && rm "$NESTED_ZIP"\n'
                             "    else\n"
-                            "        # If there's no .app and no more .zips, we must fail. Exit loop.\n"
-                            '        echo "No more archives to unpack."\n'
                             "        break\n"
                             "    fi\n"
                             "done\n\n"
 
-                            # --- Final check and installation ---
                             'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\n'
-                            '    echo "ERROR: Could not find a valid .app bundle in the archive. Please update manually."\n'
-                            '    sleep 10\n' # Give user time to see the error.
+                            '    echo "ERROR: Could not find a valid .app bundle in the archive."\n'
                             '    exit 1\n'
                             'fi\n\n'
 
                             'echo "Found bundle at: $SOURCE_APP_PATH"\n'
-                            # Remove the old version if it exists
+                            
+                            # --- KEY CHANGE: Enhanced Cleanup Logic ---
+                            # 1. Remove the standard /Applications version, if it exists.
                             'if [ -d "$FINAL_APP_PATH" ]; then\n'
                             '    echo "Removing old version from /Applications..."\n'
                             '    rm -rf "$FINAL_APP_PATH"\n'
+                            'fi\n'
+
+                            # 2. Remove the specific running version, if it exists and is in a different location.
+                            'if [ -n "$RUNNING_APP_PATH" ] && [ -d "$RUNNING_APP_PATH" ] && [ "$RUNNING_APP_PATH" != "$FINAL_APP_PATH" ]; then\n'
+                            '    echo "Removing old version from custom location: $RUNNING_APP_PATH..."\n'
+                            '    rm -rf "$RUNNING_APP_PATH"\n'
                             'fi\n\n'
-                            # Move the new version into the /Applications folder
+
+                            # Now, move the new version into place.
                             'echo "Installing new version to /Applications..."\n'
                             'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\n\n'
                             'echo "Relaunching AutoVerse..."\n'
                             'open "$FINAL_APP_PATH"\n\n'
-                            # Clean up
+
                             'echo "Cleaning up temporary files..."\n'
                             'rm -rf "$TEMP_DIR"\n'
                             'rm "$ZIP_PATH"\n'
-                            'rm -- "$0"\n' # Self-delete script
+                            'rm -- "$0"\n'
                         )
                         f.write(script_content)
 
@@ -393,7 +394,7 @@ def run_app():
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
                 
                 elif sys.platform == 'win32':
-                    # [The Windows script is unchanged and should work correctly]
+                    # [Windows logic is self-replacing, so it's already correct]
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
