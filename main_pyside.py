@@ -448,17 +448,17 @@ def run_app():
                             'Start-Process -FilePath $relaunchPath\n\n'
 
                             'Write-Host "Cleaning up temporary files..."\n'
-                            'Remove-Item -Path $zipPath -Force\n'
-                            
-                            '# This script will self-delete in the background after the parent process closes\n'
                             'Start-Sleep -Seconds 5\n'
+                            'Remove-Item -Path $zipPath -Force\n'
                             'Remove-Item -Path $MyInvocation.MyCommand.Path -Force\n'
                         )
                         f.write(script_content)
                     
-                    # --- And we use a robust command to launch the PowerShell script ---
-                    command_to_run = f'powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
-                    subprocess.Popen(command_to_run, shell=True)
+                    command_list = ['powershell.exe', '-ExecutionPolicy', 'Bypass', '-File', script_path]
+                    subprocess.Popen(command_list, creationflags=subprocess.DETACHED_PROCESS)
+
+                logger.info(f"Update script written to '{script_path}'. Launching execution.")
+                self.app.quit()
 
             except Exception as e:
                 logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)

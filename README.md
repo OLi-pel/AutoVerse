@@ -54,6 +54,42 @@ Download the latest version for your operating system from the [**Releases Page*
 7.  In the **Correction window**, use the timeline and editing tools to refine the transcript.
 8.  Click **Save Changes** to export your final work.
 
+## Using Speaker Diarization
+
+The speaker diarization feature relies on powerful models from Hugging Face and requires a free user access token to function. This ensures you have agreed to the terms of use for the models.
+
+Follow these one-time setup steps to enable this feature:
+
+1.  **Create a Hugging Face Account**
+    If you don't have one, [create a free account](https://huggingface.co/join) or [log in](https://huggingface.co/login) to your existing account.
+
+2.  **Accept Model User Agreements**
+    The diarization pipeline uses two main models. You must accept the user conditions for both. Visit each link below, read the terms, and click the **"Agree and access repository"** button.
+    -   **Segmentation Model:** [huggingface.co/pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+    -   **Diarization Pipeline:** [huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
+    *(You must be logged in to accept the terms).*
+
+3.  **Generate a "Read-Only" Access Token**
+    -   Navigate to your [Hugging Face Access Tokens settings](https://huggingface.co/settings/tokens).
+    -   Click the **"New token"** button.
+    -   Give the token a descriptive **Name** (e.g., `AutoVerseApp`).
+    -   Select the **`read`** role. This is the most secure option that will still allow the app to download the models.
+    -   Click **"Generate a token"**.
+
+4.  **Copy and Use the Token in AutoVerse**
+    -   Your new token will be displayed (it will look like `hf_...`). Click the copy icon next to it.
+    -   In AutoVerse, check the **"Enable Speaker Diarization"** box. The token input area will appear.
+    -   Paste your token into the field and click the **Save** button. The token will now be saved securely on your machine for all future sessions.
+
+---
+
+### Why is a Token Required?
+
+An access token acts as a key that proves to Hugging Face that you are an authenticated user who has accepted the license and terms of use for their pre-trained models. This allows the application to download the necessary files on your behalf.
+
+> **Important Security Note**
+> Your Hugging Face access token is a personal secret and should be treated like a password. Do not share it publicly or commit it to version control. It identifies your activity to Hugging Face.
+
 ## For Developers (Running from Source)
 
 Interested in contributing or running the development version? Follow these steps.
