@@ -37,29 +37,33 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
-      # --- [STEP 1: Install Inno Setup using Chocolatey package manager] ---
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
         shell: powershell
-
+        
       - name: Build Installer with Inno Setup
         run: |
           $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           & $ISCC "installer.iss"
         shell: powershell
 
-      - name: Create Zip Archive for Auto-Updater
-        run: Compress-Archive -Path dist/AutoVerse_App/* -DestinationPath dist/AutoVerse-Windows-App.zip
+      # --- [THE DEFINITIVE ZIP FIX]: Use 7-Zip for a clean archive ---
+      # This command goes inside the build directory and zips its CONTENTS,
+      # preventing nested folders and ensuring a clean extraction.
+      - name: Create Clean Zip Archive for Auto-Updater
+        run: |
+          cd dist/AutoVerse_App
+          7z a ../AutoVerse-Windows-App.zip *
         shell: powershell
-      
-      - name: Upload Windows Installer Artifact
+        
+      - name: Upload Windows Artifacts
+        # This part is correct and doesn't need to change.
+        # It now correctly finds and uploads the Setup.exe and the newly created zip.
+        run: |
+          mv dist/Output/AutoVerse-Setup.exe dist/
         uses: actions/upload-artifact@v4
         with:
-          name: AutoVerse-Windows-Setup.exe
-          path: Output/AutoVerse-Windows-Setup.exe
-
-      - name: Upload Windows Updater Zip Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AutoVerse-Windows-App.zip
-          path: dist/AutoVerse-Windows-App.zip
+          name: Windows-Release-Artifacts
+          path: |
+            dist/AutoVerse-Setup.exe
+            dist/AutoVerse-Windows-App.zip

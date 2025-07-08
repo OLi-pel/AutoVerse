@@ -421,34 +421,34 @@ def run_app():
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
                         script_path = f.name
-                        # --- Final PowerShell Script with Generous Delays ---
+                        # --- Final, Hardened PowerShell Script ---
                         script_content = (
                             f'$installDir = "{install_dir}"\n'
                             f'$zipPath = "{zip_path}"\n'
                             f'$relaunchPath = "{relaunch_path}"\n\n'
                             
                             'Write-Host "--- AutoVerse Updater: Starting... ---" -ForegroundColor Green\n'
-                            # --- INCREASED THIS DELAY ---
-                            'Write-Host "Waiting 7 seconds for old application to close..."\n'
-                            'Start-Sleep -Seconds 7\n\n'
+                            'Write-Host "Waiting 5 seconds for old application to close..."\n'
+                            'Start-Sleep -Seconds 5\n\n'
                             
-                            'Write-Host "Removing old application files..." -ForegroundColor Cyan\n'
+                            # NEW LOGIC: Delete all old content FIRST.
+                            'Write-Host "Step 1: Removing old application files..." -ForegroundColor Cyan\n'
                             'if (Test-Path $installDir) {\n'
-                            '    Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue\n'
+                            '    Get-ChildItem -Path $installDir | ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName }\n'
                             '}\n\n'
-                            
-                            'Write-Host "Extracting new version..." -ForegroundColor Cyan\n'
+
+                            # NEW LOGIC: Ensure directory exists, then extract into the EMPTY directory.
+                            'Write-Host "Step 2: Extracting new version..." -ForegroundColor Cyan\n'
                             'if (-not (Test-Path $installDir)) {\n'
                             '    New-Item -ItemType Directory -Path $installDir -Force\n'
                             '}\n'
                             'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
                             
-                            'Write-Host "Relaunching AutoVerse..." -ForegroundColor Green\n'
+                            'Write-Host "Step 3: Relaunching AutoVerse..." -ForegroundColor Green\n'
                             'Start-Process -FilePath $relaunchPath\n\n'
 
                             'Write-Host "Cleaning up temporary files... This window will close automatically."\n'
-                            # This final delay allows the script to delete itself cleanly in the background.
-                            'Start-Sleep -Seconds 5\n'
+                            'Start-Sleep -Seconds 7\n'
                             'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
                             'Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n'
                         )
