@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1064</width>
-    <height>727</height>
+    <width>1093</width>
+    <height>691</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -108,13 +108,6 @@
                    <layout class="QHBoxLayout" name="horizontalLayout">
                     <item>
                      <widget class="QComboBox" name="model_dropdown"/>
-                    </item>
-                    <item>
-                     <widget class="QLabel" name="model_description_label">
-                      <property name="text">
-                       <string>TextLabel</string>
-                      </property>
-                     </widget>
                     </item>
                    </layout>
                   </widget>

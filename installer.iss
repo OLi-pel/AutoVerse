@@ -2,7 +2,7 @@
 
 [Setup]
 AppName=AutoVerse
-AppVersion=1.0.1 
+AppVersion=1.0.2 
 ; ^ Remember to update this version number for new releases.
 OutputBaseFilename=AutoVerse-Setup
 DefaultDirName={autopf}\AutoVerse
