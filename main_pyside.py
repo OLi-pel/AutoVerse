@@ -421,33 +421,41 @@ def run_app():
                     
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
                         script_path = f.name
-                        # This PowerShell script content is correct and robust. No changes needed here.
+                        # --- Final PowerShell Script with Generous Delays ---
                         script_content = (
                             f'$installDir = "{install_dir}"\n'
                             f'$zipPath = "{zip_path}"\n'
                             f'$relaunchPath = "{relaunch_path}"\n\n'
-                            'Write-Host "--- AutoVerse Updater: Starting... ---\n" -ForegroundColor Green\n'
-                            'Start-Sleep -Seconds 3\n\n'
-                            'Write-Host "Removing old application files..."\n'
-                            'if (Test-Path $installDir) { Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force }\n\n'
-                            'Write-Host "Extracting new version..."\n'
-                            'if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir }\n'
+                            
+                            'Write-Host "--- AutoVerse Updater: Starting... ---" -ForegroundColor Green\n'
+                            # --- INCREASED THIS DELAY ---
+                            'Write-Host "Waiting 7 seconds for old application to close..."\n'
+                            'Start-Sleep -Seconds 7\n\n'
+                            
+                            'Write-Host "Removing old application files..." -ForegroundColor Cyan\n'
+                            'if (Test-Path $installDir) {\n'
+                            '    Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue\n'
+                            '}\n\n'
+                            
+                            'Write-Host "Extracting new version..." -ForegroundColor Cyan\n'
+                            'if (-not (Test-Path $installDir)) {\n'
+                            '    New-Item -ItemType Directory -Path $installDir -Force\n'
+                            '}\n'
                             'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
-                            'Write-Host "Relaunching AutoVerse..."\n'
+                            
+                            'Write-Host "Relaunching AutoVerse..." -ForegroundColor Green\n'
                             'Start-Process -FilePath $relaunchPath\n\n'
-                            'Write-Host "Cleaning up... This window will close automatically."\n'
-                            'Start-Sleep -Seconds 7\n'
-                            'Remove-Item -Path $zipPath -Force\n'
-                            'Remove-Item -Path $MyInvocation.MyCommand.Path -Force\n'
+
+                            'Write-Host "Cleaning up temporary files... This window will close automatically."\n'
+                            # This final delay allows the script to delete itself cleanly in the background.
+                            'Start-Sleep -Seconds 5\n'
+                            'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
+                            'Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n'
                         )
                         f.write(script_content)
                     
-                    # --- [THE DEFINITIVE, FINAL FIX FOR WINDOWS LAUNCHING] ---
-                    # We use cmd.exe's built-in 'start' command, which is designed
-                    # to launch a new process in a new window and immediately detach.
+                    # This launch command is correct.
                     command_string = f'start "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
-                    
-                    # We use shell=True because 'start' is a shell built-in command.
                     subprocess.Popen(command_string, shell=True)
 
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
