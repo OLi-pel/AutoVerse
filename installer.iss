@@ -4,10 +4,12 @@
 AppName=AutoVerse
 AppVersion=1.0.2 
 ; ^ Remember to update this version number for new releases.
-OutputBaseFilename=AutoVerse-Setup
-DefaultDirName={autopf}\AutoVerse
-DefaultGroupName=AutoVerse
+; --- [THE FIX]: Install for the current user in a non-admin location ---
 PrivilegesRequired=lowest
+DefaultDirName={localappdata}\Programs\AutoVerse
+; --- [END OF FIX] ---
+OutputBaseFilename=AutoVerse-Windows-Setup
+DefaultGroupName=AutoVerse
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

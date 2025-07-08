@@ -360,12 +360,9 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # --- [THE DEFINITIVE macOS SCRIPT - FINAL VERSION] ---
+                    # This macOS part is now correct and does not need changes.
                     final_app_path = "/Applications/AutoVerse.app"
-                    
-                    # Use the new, robust helper function to find the real path
                     old_app_path = get_true_application_path()
-
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
                         script_content = (
@@ -376,7 +373,7 @@ def run_app():
                             f'FINAL_APP_PATH="{final_app_path}"\n'
                             f'TEMP_DIR=$(mktemp -d)\n\n'
                             'echo "Unzipping downloaded archive..."\n'
-                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\n\n' # Use &>/dev/null to hide noisy unzip output
+                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\n\n'
                             'echo "Searching for application bundle..."\n'
                             'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n\n'
                             'if [ -z "$SOURCE_APP_PATH" ]; then\n'
@@ -398,24 +395,20 @@ def run_app():
                             'fi\n\n'
                             'echo "Installing new version to /Applications..."\n'
                             'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\n\n'
-
-                            # NEW: The old_app_path is now passed from the Python script
                             f'OLD_APP_PATH="{old_app_path or ""}"\n\n'
                             'echo "Cleaning up the original application location..."\n'
-                            # This logic remains the same, but it will now receive the correct path
                             'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\n'
                             '    rm -rf "$OLD_APP_PATH"\n'
                             '    echo "Successfully removed old version from $OLD_APP_PATH"\n'
                             'else\n'
                             '    echo "No cleanup of original location needed (already in /Applications or not found)."\n'
                             'fi\n\n'
-                            
                             'echo "Relaunching AutoVerse..."\n'
                             'open "$FINAL_APP_PATH"\n\n'
                             'echo "Cleaning up temporary files..."\n'
                             'rm -rf "$TEMP_DIR"\n'
                             'rm "$ZIP_PATH"\n'
-                            'rm -- "$0"\n' # Self-delete script
+                            'rm -- "$0"\n'
                         )
                         f.write(script_content)
 
@@ -423,14 +416,17 @@ def run_app():
                     subprocess.Popen(['open', '-a', 'Terminal', script_path])
                 
                 elif sys.platform == 'win32':
-                    # Windows script is unchanged
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
                         script_path = f.name
                         script_content = ('@echo off\n' + 'echo AutoVerse Updater: Starting...\n' + 'timeout /t 3 /nobreak > NUL\n\n' + f'echo Removing old application files from "{install_dir}"...\n' + f'del /s /q "{install_dir}\\*.*"\n' + f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n' + 'echo Extracting new version...\n' + f'tar -xf "{zip_path}" -C "{install_dir}"\n\n' + 'echo Relaunching AutoVerse...\n' + f'start "" "{relaunch_path}"\n\n' + 'echo Cleaning up...\n' + f'del "{zip_path}"\n' + 'del "%~f0"\n')
                         f.write(script_content)
-                    subprocess.Popen([script_path], creationflags=subprocess.DETACHED_PROCESS, shell=True)
+
+                    # --- [THE DEFINITIVE FIX] ---
+                    # Replace the old Popen call with this much more robust method.
+                    command_to_run = f'cmd /c start "AutoVerse Updater" "{script_path}"'
+                    subprocess.Popen(command_to_run, shell=True)
                 
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()

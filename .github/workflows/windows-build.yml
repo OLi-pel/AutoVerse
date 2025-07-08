@@ -55,8 +55,8 @@ jobs:
       - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoVerse-Setup.exe
-          path: Output/AutoVerse-Setup.exe
+          name: AutoVerse-Windows-Setup.exe
+          path: Output/AutoVerse-Windows-Setup.exe
 
       - name: Upload Windows Updater Zip Artifact
         uses: actions/upload-artifact@v4
