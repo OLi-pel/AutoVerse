@@ -419,43 +419,36 @@ def run_app():
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
-                    # --- THE FIX: Create a .ps1 PowerShell script, not a .bat file ---
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
                         script_path = f.name
-                        # --- This entire script is now in robust PowerShell syntax ---
+                        # This PowerShell script content is correct and robust. No changes needed here.
                         script_content = (
                             f'$installDir = "{install_dir}"\n'
                             f'$zipPath = "{zip_path}"\n'
                             f'$relaunchPath = "{relaunch_path}"\n\n'
-                            
-                            'Write-Host "--- AutoVerse Updater: Starting... ---\n"\n'
-                            'Write-Host "Waiting 3 seconds for app to close..."\n'
+                            'Write-Host "--- AutoVerse Updater: Starting... ---\n" -ForegroundColor Green\n'
                             'Start-Sleep -Seconds 3\n\n'
-                            
-                            'Write-Host "Removing old application files from: $installDir"\n'
-                            'if (Test-Path $installDir) {\n'
-                            '    Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force\n'
-                            '}\n\n'
-                            
+                            'Write-Host "Removing old application files..."\n'
+                            'if (Test-Path $installDir) { Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force }\n\n'
                             'Write-Host "Extracting new version..."\n'
-                            '# Ensure the target directory exists before extracting\n'
-                            'if (-not (Test-Path $installDir)) {\n'
-                            '    New-Item -ItemType Directory -Path $installDir\n'
-                            '}\n'
+                            'if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir }\n'
                             'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
-                            
                             'Write-Host "Relaunching AutoVerse..."\n'
                             'Start-Process -FilePath $relaunchPath\n\n'
-
-                            'Write-Host "Cleaning up temporary files..."\n'
-                            'Start-Sleep -Seconds 5\n'
+                            'Write-Host "Cleaning up... This window will close automatically."\n'
+                            'Start-Sleep -Seconds 7\n'
                             'Remove-Item -Path $zipPath -Force\n'
                             'Remove-Item -Path $MyInvocation.MyCommand.Path -Force\n'
                         )
                         f.write(script_content)
                     
-                    command_list = ['powershell.exe', '-ExecutionPolicy', 'Bypass', '-File', script_path]
-                    subprocess.Popen(command_list, creationflags=subprocess.DETACHED_PROCESS)
+                    # --- [THE DEFINITIVE, FINAL FIX FOR WINDOWS LAUNCHING] ---
+                    # We use cmd.exe's built-in 'start' command, which is designed
+                    # to launch a new process in a new window and immediately detach.
+                    command_string = f'start "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
+                    
+                    # We use shell=True because 'start' is a shell built-in command.
+                    subprocess.Popen(command_string, shell=True)
 
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()
