@@ -418,18 +418,47 @@ def run_app():
                 elif sys.platform == 'win32':
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.bat', encoding='utf-8') as f:
+                    
+                    # --- THE FIX: Create a .ps1 PowerShell script, not a .bat file ---
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
                         script_path = f.name
-                        script_content = ('@echo off\n' + 'echo AutoVerse Updater: Starting...\n' + 'timeout /t 3 /nobreak > NUL\n\n' + f'echo Removing old application files from "{install_dir}"...\n' + f'del /s /q "{install_dir}\\*.*"\n' + f'for /d %%p in ("{install_dir}\\*.*") do rd "%%p" /s /q\n\n' + 'echo Extracting new version...\n' + f'tar -xf "{zip_path}" -C "{install_dir}"\n\n' + 'echo Relaunching AutoVerse...\n' + f'start "" "{relaunch_path}"\n\n' + 'echo Cleaning up...\n' + f'del "{zip_path}"\n' + 'del "%~f0"\n')
-                        f.write(script_content)
+                        # --- This entire script is now in robust PowerShell syntax ---
+                        script_content = (
+                            f'$installDir = "{install_dir}"\n'
+                            f'$zipPath = "{zip_path}"\n'
+                            f'$relaunchPath = "{relaunch_path}"\n\n'
+                            
+                            'Write-Host "--- AutoVerse Updater: Starting... ---\n"\n'
+                            'Write-Host "Waiting 3 seconds for app to close..."\n'
+                            'Start-Sleep -Seconds 3\n\n'
+                            
+                            'Write-Host "Removing old application files from: $installDir"\n'
+                            'if (Test-Path $installDir) {\n'
+                            '    Get-ChildItem -Path $installDir | Remove-Item -Recurse -Force\n'
+                            '}\n\n'
+                            
+                            'Write-Host "Extracting new version..."\n'
+                            '# Ensure the target directory exists before extracting\n'
+                            'if (-not (Test-Path $installDir)) {\n'
+                            '    New-Item -ItemType Directory -Path $installDir\n'
+                            '}\n'
+                            'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
+                            
+                            'Write-Host "Relaunching AutoVerse..."\n'
+                            'Start-Process -FilePath $relaunchPath\n\n'
 
-                    # --- [THE DEFINITIVE FIX] ---
-                    # Replace the old Popen call with this much more robust method.
-                    command_to_run = f'cmd /c start "AutoVerse Updater" "{script_path}"'
+                            'Write-Host "Cleaning up temporary files..."\n'
+                            'Remove-Item -Path $zipPath -Force\n'
+                            
+                            '# This script will self-delete in the background after the parent process closes\n'
+                            'Start-Sleep -Seconds 5\n'
+                            'Remove-Item -Path $MyInvocation.MyCommand.Path -Force\n'
+                        )
+                        f.write(script_content)
+                    
+                    # --- And we use a robust command to launch the PowerShell script ---
+                    command_to_run = f'powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
                     subprocess.Popen(command_to_run, shell=True)
-                
-                logger.info(f"Update script written to '{script_path}'. Launching execution.")
-                self.app.quit()
 
             except Exception as e:
                 logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
