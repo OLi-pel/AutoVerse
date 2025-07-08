@@ -42,25 +42,21 @@ jobs:
         run: choco install innosetup --no-progress -y
         shell: powershell
 
-      # --- [STEP 2: Build the .exe installer using the script we created] ---
       - name: Build Installer with Inno Setup
         run: |
           $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           & $ISCC "installer.iss"
-        # The output installer will be in a new 'dist/Output' directory
         shell: powershell
 
-      # --- [STEP 3: Create the .zip file for the auto-updater] ---
       - name: Create Zip Archive for Auto-Updater
-        # This zips the CONTENTS of the PyInstaller output folder, which is what your updater expects
         run: Compress-Archive -Path dist/AutoVerse_App/* -DestinationPath dist/AutoVerse-Windows-App.zip
         shell: powershell
-        
+      
       - name: Upload Windows Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AutoVerse-Setup
-          path: dist/AutoVerse-Setup.exe
+          name: AutoVerse-Setup.exe
+          path: Output/AutoVerse-Setup.exe
 
       - name: Upload Windows Updater Zip Artifact
         uses: actions/upload-artifact@v4

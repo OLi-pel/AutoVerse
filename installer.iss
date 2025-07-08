@@ -2,18 +2,16 @@
 
 [Setup]
 AppName=AutoVerse
-AppVersion=1.0.2 
+AppVersion=1.0.1 
 ; ^ Remember to update this version number for new releases.
-
-; --- [THE FIX]: Change PrivilegesRequired and DefaultDirName ---
-PrivilegesRequired=lowest
-DefaultDirName={localappdata}\AutoVerse
-; --- [END OF FIX] ---
-
 OutputBaseFilename=AutoVerse-Setup
+DefaultDirName={autopf}\AutoVerse
+DefaultGroupName=AutoVerse
+PrivilegesRequired=lowest
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+
 
 ; ... rest of the file is unchanged ...
 
