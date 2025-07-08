@@ -33,7 +33,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
@@ -43,24 +42,23 @@ jobs:
         
       - name: Build Installer with Inno Setup
         run: |
-          $ISCC = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $ISCC = "C:\Program Files (xx86)\Inno Setup 6\ISCC.exe"
           & $ISCC "installer.iss"
         shell: powershell
-
-      # --- [THE DEFINITIVE ZIP FIX]: Use 7-Zip for a clean archive ---
-      # This command goes inside the build directory and zips its CONTENTS,
-      # preventing nested folders and ensuring a clean extraction.
+      
       - name: Create Clean Zip Archive for Auto-Updater
         run: |
           cd dist/AutoVerse_App
           7z a ../AutoVerse-Windows-App.zip *
         shell: powershell
-        
+
+      # --- [THE FIX]: Step 1: Organize the artifacts into one directory ---
+      - name: Organize Artifacts
+        run: Move-Item -Path dist/Output/AutoVerse-Setup.exe -Destination dist/
+        shell: powershell
+
+      # --- [THE FIX]: Step 2: Upload everything from that one directory ---
       - name: Upload Windows Artifacts
-        # This part is correct and doesn't need to change.
-        # It now correctly finds and uploads the Setup.exe and the newly created zip.
-        run: |
-          mv dist/Output/AutoVerse-Setup.exe dist/
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Release-Artifacts
