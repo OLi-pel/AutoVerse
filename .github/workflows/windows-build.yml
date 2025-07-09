@@ -20,7 +20,7 @@ jobs:
       - name: Create Placeholder Icon
         run: |
           New-Item -ItemType Directory -Force -Path "assets"
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\logo.ico"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\\logo.ico"
         shell: powershell
       - name: Download and prepare FFmpeg
         run: |
@@ -40,11 +40,15 @@ jobs:
         run: choco install innosetup --no-progress -y
         shell: powershell
         
+      # --- THIS IS THE FIX ---
+      # Find the Inno Setup Compiler (iscc.exe) dynamically from the PATH 
+      # instead of using a hardcoded path. This is more robust.
       - name: Build Installer with Inno Setup
         run: |
-          $ISCC = "C:\Program Files (xx86)\Inno Setup 6\ISCC.exe"
-          & $ISCC "installer.iss"
+          $ISCC_PATH = (Get-Command iscc.exe).Source
+          & $ISCC_PATH "installer.iss"
         shell: powershell
+      # --- END OF FIX ---
       
       - name: Create Clean Zip Archive for Auto-Updater
         run: |
@@ -52,16 +56,14 @@ jobs:
           7z a ../AutoVerse-Windows-App.zip *
         shell: powershell
 
-      # --- [THE FIX]: Step 1: Organize the artifacts into one directory ---
       - name: Organize Artifacts
-        run: Move-Item -Path dist/Output/AutoVerse-Setup.exe -Destination dist/
+        run: Move-Item -Path dist/Output/AutoVerse-Windows-Setup.exe -Destination dist/
         shell: powershell
 
-      # --- [THE FIX]: Step 2: Upload everything from that one directory ---
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Windows-Release-Artifacts
           path: |
-            dist/AutoVerse-Setup.exe
+            dist/AutoVerse-Windows-Setup.exe
             dist/AutoVerse-Windows-App.zip

@@ -1,80 +1,86 @@
 # core/app_worker.py
+
 import logging
 import os
 import sys
 import tempfile
-from moviepy.editor import VideoFileClip
+from moviepy.editor import VideoFileClip, AudioFileClip # Now imports both
 import torchaudio
 import traceback
 
-# --- [THE FIX] ---
-# The worker process is independent and needs its own imports.
 from utils import constants
-# --------------------
-
 from core.audio_processor import AudioProcessor, ProcessedAudioResult
 
-# It is good practice to initialize the logger at the module level
 logger = logging.getLogger(__name__)
 
-# A custom stream class that redirects stdout/stderr to a logger.
+# A custom stream class that redirects stdout/stderr to a logger for clean PyInstaller builds.
 class TqdmLogStream:
-    """
-    A file-like object that redirects writes to a logger instance.
-    Used to capture output from libraries like tqdm that write to stdout.
-    """
     def __init__(self, logger_instance, level=logging.DEBUG):
         self.logger = logger_instance
         self.level = level
         self.linebuf = ''
 
     def write(self, buf):
-        # Write each line to the log
         for line in buf.rstrip().splitlines():
-            # Don't log empty lines
             if line.strip():
                 self.logger.log(self.level, line.rstrip())
 
     def flush(self):
-        # The flush method is required for compatibility with stream protocols.
         pass
 
+# --- NEW: Definitions for complex formats ---
+COMPLEX_AUDIO_EXTENSIONS = ['.m4a', '.aac', '.wma', '.ogg', '.flac'] 
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', 'avi', '.mov', '.flv', '.wmv']
 
-def _is_video_file(file_path):
-    """Checks if a file is a video based on its extension."""
-    return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS)
+def _is_complex_format(file_path):
+    """
+    Checks if a file is a video or a complex audio format that benefits
+    from pre-conversion to WAV.
+    """
+    lower_path = file_path.lower()
+    return any(lower_path.endswith(ext) for ext in VIDEO_EXTENSIONS + COMPLEX_AUDIO_EXTENSIONS)
 
-def _extract_audio(video_path):
-    """Extracts audio from a video file."""
+def _convert_to_wav(media_path):
+    """
+    Universally extracts audio from a video or converts a complex audio file 
+    to a temporary WAV file using FFmpeg (via moviepy). This is the most robust method.
+    """
     try:
-        video = VideoFileClip(video_path)
+        logger.info(f"Detected complex format. Converting {media_path} to WAV...")
+        
+        # Use a temporary file that we manage manually.
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio_file:
             temp_path = temp_audio_file.name
-        video.audio.write_audiofile(temp_path, codec='pcm_s16le')
-        logger.info(f"Successfully extracted audio from {video_path} to {temp_path}")
+        
+        # AudioFileClip can handle both audio and video files.
+        with AudioFileClip(media_path) as audio_clip:
+            # write_audiofile is a direct and robust call to FFmpeg.
+            audio_clip.write_audiofile(temp_path, codec='pcm_s16le') # pcm_s16le is standard for WAV
+
+        logger.info(f"Successfully converted audio to temporary file: {temp_path}")
         return temp_path
     except Exception as e:
-        logger.error(f"Failed to extract audio from {video_path}: {e}", exc_info=True)
-        raise
+        logger.error(f"Failed to convert/extract audio from {media_path}: {e}", exc_info=True)
+        raise # Re-raise the exception to be caught by the main handler
+
+# --- THE MAIN WORKER FUNCTION ---
 
 def processing_worker_function(queue, file_paths, options, cache_dir, dest_folder=None, ffmpeg_path=None):
     """
-    The definitive worker function. Includes a global fix for the tqdm crash
-    by redirecting console output to a log file.
+    The definitive worker function. Pre-converts all complex media formats to clean WAV
+    files before passing them to the main audio processor.
     """
-    # We must set up the logger first so we can redirect stdout to it.
-    log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs") # This line now works
+    # Set up logger for the worker process, redirecting stdout/stderr for clean packaging.
+    log_dir = os.path.join(constants.APP_USER_DATA_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)
     worker_log_path = os.path.join(log_dir, "worker.log")
     file_handler = logging.FileHandler(worker_log_path, mode='w', encoding='utf-8')
-    formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT) # This now works
+    formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT)
     file_handler.setFormatter(formatter)
     
-    # Configure the logger specifically for this worker
     worker_logger = logging.getLogger("WorkerLogger")
     worker_logger.addHandler(file_handler)
-    worker_logger.setLevel(constants.LOG_LEVEL_DEBUG) # This now works
+    worker_logger.setLevel(constants.LOG_LEVEL_DEBUG)
     
     if getattr(sys, 'frozen', False):
         sys.stdout = TqdmLogStream(worker_logger, level=logging.DEBUG)
@@ -97,7 +103,6 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
 
     try:
         def progress_callback(message, percentage=None):
-            # This line and the one below now work
             if percentage is not None: queue.put((constants.MSG_TYPE_PROGRESS, percentage))
             if message: queue.put((constants.MSG_TYPE_STATUS, message))
 
@@ -114,12 +119,11 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
             config=processor_config, progress_callback=progress_callback,
             enable_diarization=options['enable_diarization'], include_timestamps=options['include_timestamps'],
             include_end_times=options['include_end_times'], enable_auto_merge=options['auto_merge'],
-            cache_dir=cache_dir
+            cache_dir=cache_dir, logger_instance=worker_logger # Pass the logger
         )
         
         all_results = []
         for idx, file_path in enumerate(file_paths):
-            # This block now works because all constants are defined
             queue.put((constants.MSG_TYPE_BATCH_FILE_START, {
                 'filename': os.path.basename(file_path),
                 'current_idx': idx + 1,
@@ -129,13 +133,15 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
             audio_to_process = file_path
             temp_audio_path = None
             try:
-                if _is_video_file(file_path):
-                    progress_callback("Extracting audio...", 0)
-                    temp_audio_path = _extract_audio(file_path)
+                # --- THIS IS THE ROBUST PRE-PROCESSING STEP ---
+                if _is_complex_format(file_path):
+                    progress_callback("Converting media to WAV...", 0)
+                    temp_audio_path = _convert_to_wav(file_path)
                     audio_to_process = temp_audio_path
 
+                # Now, the audio_processor gets a clean, simple file path to a WAV file.
                 result = audio_processor.process_audio(audio_to_process)
-                result.source_file = file_path
+                result.source_file = file_path # Keep track of the original source
 
                 if result.status == constants.STATUS_SUCCESS and len(file_paths) > 1 and dest_folder:
                     model_name_key = options["model_key"].split(" ")[0]
@@ -153,8 +159,13 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                 all_results.append(ProcessedAudioResult(status=constants.STATUS_ERROR, message=error_msg, source_file=file_path))
             
             finally:
+                # IMPORTANT: Clean up the temporary WAV file if it was created
                 if temp_audio_path and os.path.exists(temp_audio_path):
-                    os.remove(temp_audio_path)
+                    try:
+                        os.remove(temp_audio_path)
+                        worker_logger.info(f"Cleaned up temporary file: {temp_audio_path}")
+                    except OSError as e:
+                        worker_logger.error(f"Failed to remove temporary file {temp_audio_path}: {e}")
         
         queue.put((constants.MSG_TYPE_BATCH_COMPLETED, {'all_results': all_results}))
 
