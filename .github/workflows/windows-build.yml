@@ -1,5 +1,3 @@
-# .github/workflows/windows-build.yml
-
 name: Build Windows Executable
 on:
   push:
@@ -40,15 +38,11 @@ jobs:
         run: choco install innosetup --no-progress -y
         shell: powershell
         
-      # --- THIS IS THE FIX ---
-      # Find the Inno Setup Compiler (iscc.exe) dynamically from the PATH 
-      # instead of using a hardcoded path. This is more robust.
       - name: Build Installer with Inno Setup
         run: |
           $ISCC_PATH = (Get-Command iscc.exe).Source
           & $ISCC_PATH "installer.iss"
         shell: powershell
-      # --- END OF FIX ---
       
       - name: Create Clean Zip Archive for Auto-Updater
         run: |
@@ -56,9 +50,13 @@ jobs:
           7z a ../AutoVerse-Windows-App.zip *
         shell: powershell
 
+      # --- THIS IS THE FIX ---
+      # Inno Setup creates its output in 'Output/', not 'dist/Output/'.
+      # This moves the generated installer into the 'dist' folder with other artifacts.
       - name: Organize Artifacts
-        run: Move-Item -Path dist/Output/AutoVerse-Windows-Setup.exe -Destination dist/
+        run: Move-Item -Path Output/AutoVerse-Windows-Setup.exe -Destination dist/
         shell: powershell
+      # --- END OF FIX ---
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
