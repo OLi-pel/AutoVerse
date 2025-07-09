@@ -421,46 +421,65 @@ def run_app():
                             
                             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
                                 script_path = f.name
-                                # --- THIS IS THE CORRECTED POWERSHELL SCRIPT ---
+                                # This PowerShell script checks for Admin rights and re-launches itself if necessary.
                                 script_content = (
-                                    f'$installDir = "{install_dir}"\\n'
-                                    f'$zipPath = "{zip_path}"\\n'
-                                    f'$relaunchPath = "{relaunch_path}"\\n\\n'
-
-                                    'Write-Host "--- AutoVerse Updater: Starting... ---" -ForegroundColor Green\\n'
-                                    'Write-Host "Waiting 5 seconds for the old application to close..."\\n'
-                                    'Start-Sleep -Seconds 5\\n\\n'
-
-                                    'Write-Host "Step 1: Removing old application files..." -ForegroundColor Cyan\\n'
-                                    'if (Test-Path $installDir) {\\n'
-                                    '    Get-ChildItem -Path $installDir | ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName }\\n'
-                                    '}\\n\\n'
-
-                                    'Write-Host "Step 2: Extracting new version..." -ForegroundColor Cyan\\n'
-                                    'if (-not (Test-Path $installDir)) {\\n'
-                                    '    New-Item -ItemType Directory -Path $installDir -Force | Out-Null\\n'
-                                    '}\\n'
-                                    'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\\n\\n'
+                                    'param([switch]$Elevated)\n\n'
                                     
-                                    'Write-Host "Step 3: Finalizing installation..." -ForegroundColor Cyan\\n'
-                                    'Start-Sleep -Seconds 2\\n\\n'
+                                    'function Test-Admin {\n'
+                                    '    $currentUser = New-Object Security.Principal.WindowsPrincipal $([Security.Principal.WindowsIdentity]::GetCurrent())\n'
+                                    '    return $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)\n'
+                                    '}\n\n'
+                                    
+                                    'if ((Test-Admin) -eq $false) {\n'
+                                    '    if ($Elevated) {\n'
+                                    '        Write-Warning "Failed to elevate to Administrator. Update cannot continue."\n'
+                                    '        Start-Sleep -Seconds 15\n'
+                                    '        exit 1\n'
+                                    '    } else {\n'
+                                    '        $newProcess = @{\n'
+                                    '            FilePath = "powershell.exe"\n'
+                                    '            ArgumentList = "-NoProfile -ExecutionPolicy Bypass -File \\"' + f'{script_path}' + '\\" -Elevated"\n'
+                                    '            Verb = "RunAs"\n'
+                                    '        }\n'
+                                    '        Start-Process @newProcess\n'
+                                    '        exit\n'
+                                    '    }\n'
+                                    '}\n\n'
+                                    
+                                    f'$installDir = "{install_dir}"\n'
+                                    f'$zipPath = "{zip_path}"\n'
+                                    f'$relaunchPath = "{relaunch_path}"\n\n'
+                                    
+                                    'Write-Host "--- AutoVerse Updater (Administrator) ---" -ForegroundColor Green\n'
+                                    'try {\n'
+                                    '    Write-Host "Waiting a moment for files to unlock..."\n'
+                                    '    Start-Sleep -Seconds 5\n\n'
+                                    
+                                    '    Write-Host "Step 1: Removing old application files..." -ForegroundColor Cyan\n'
+                                    '    if (Test-Path $installDir) {\n'
+                                    '        Get-ChildItem -Path $installDir -Recurse | Remove-Item -Force -Recurse\n'
+                                    '    }\n\n'
+                                    
+                                    '    Write-Host "Step 2: Extracting new version..." -ForegroundColor Cyan\n'
+                                    '    New-Item -ItemType Directory -Path $installDir -Force | Out-Null\n'
+                                    '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
 
-                                    'Write-Host "Step 4: Relaunching AutoVerse..." -ForegroundColor Green\\n'
-                                    'if (Test-Path $relaunchPath) {\\n'
-                                    '    Start-Process -FilePath $relaunchPath\\n'
-                                    '} else {\\n'
-                                    '    Write-Host "ERROR: Relaunch failed because AutoVerse.exe was not found." -ForegroundColor Red\\n'
-                                    '    Write-Host "Please start the application manually." -ForegroundColor Yellow\\n'
-                                    '}\\n\\n'
-
-                                    'Write-Host "Cleaning up... This window will close in 10 seconds."\\n'
-                                    'Start-Sleep -Seconds 10\\n'
-                                    'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\\n'
-                                    'Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\\n'
+                                    '    Write-Host "Step 3: Relaunching AutoVerse..." -ForegroundColor Green\n'
+                                    '    Start-Process -FilePath $relaunchPath\n'
+                                    '    Write-Host "Update successful!" -ForegroundColor Green\n'
+                                    '} catch {\n'
+                                    '    Write-Error "AN ERROR OCCURRED: $($_.Exception.Message)"\n'
+                                    '    Write-Host "Please report this issue on GitHub." -ForegroundColor Yellow\n'
+                                    '}\n\n'
+                                    
+                                    'Write-Host "This window will close in 20 seconds."\n'
+                                    'Start-Sleep -Seconds 20\n'
+                                    'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
                                 )
                                 f.write(script_content)
                             
-                            command_string = f'start /wait "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -NoProfile -File "{script_path}"'
+                            # This command will start the script, which will then trigger the UAC prompt
+                            command_string = f'powershell.exe -ExecutionPolicy Bypass -NoProfile -File "{script_path}"'
                             subprocess.Popen(command_string, shell=True)
 
                         logger.info(f"Update script written to '{script_path}'. Launching execution.")
