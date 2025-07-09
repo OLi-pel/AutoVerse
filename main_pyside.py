@@ -460,7 +460,7 @@ def run_app():
                                 )
                                 f.write(script_content)
                             
-                            command_string = f'start "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
+                            command_string = f'powershell.exe -ExecutionPolicy Bypass -NoProfile -File "{script_path}"'
                             subprocess.Popen(command_string, shell=True)
 
                         logger.info(f"Update script written to '{script_path}'. Launching execution.")
