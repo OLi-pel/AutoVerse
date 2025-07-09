@@ -479,7 +479,7 @@ def run_app():
                                 f.write(script_content)
                             
                             # This command will start the script, which will then trigger the UAC prompt
-                            command_string = f'powershell.exe -ExecutionPolicy Bypass -NoProfile -File "{script_path}"'
+                            command_string = f'start "AutoVerse Updater" cmd /c "powershell.exe -ExecutionPolicy Bypass -NoProfile -File \'{script_path}\'"'
                             subprocess.Popen(command_string, shell=True)
 
                         logger.info(f"Update script written to '{script_path}'. Launching execution.")
