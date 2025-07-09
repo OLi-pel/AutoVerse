@@ -351,119 +351,124 @@ def run_app():
             self.trigger_updater(file_path)
 
         def trigger_updater(self, zip_path):
-            """
-            Creates and launches a native OS script that intelligently finds the
-            .app bundle on macOS and works with the clean Windows artifact.
-            """
-            try:
-                script_path = ""
-                script_content = ""
+                    """
+                    Creates and launches a native OS script that intelligently finds the
+                    .app bundle on macOS and works with the clean Windows artifact.
+                    """
+                    try:
+                        script_path = ""
+                        script_content = ""
 
-                if sys.platform == 'darwin':
-                    # This macOS part is now correct and does not need changes.
-                    final_app_path = "/Applications/AutoVerse.app"
-                    old_app_path = get_true_application_path()
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
-                        script_path = f.name
-                        script_content = (
-                            "#!/bin/bash\n\n"
-                            'echo "--- AutoVerse Updater ---\n"\n'
-                            "sleep 3\n"
-                            f'ZIP_PATH="{zip_path}"\n'
-                            f'FINAL_APP_PATH="{final_app_path}"\n'
-                            f'TEMP_DIR=$(mktemp -d)\n\n'
-                            'echo "Unzipping downloaded archive..."\n'
-                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\n\n'
-                            'echo "Searching for application bundle..."\n'
-                            'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n\n'
-                            'if [ -z "$SOURCE_APP_PATH" ]; then\n'
-                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\n'
-                            '    if [ -n "$NESTED_ZIP" ]; then\n'
-                            '       echo "Found and extracting nested zip..."\n'
-                            '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\n'
-                            '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\n'
-                            '    fi\n'
-                            'fi\n\n'
-                            'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\n'
-                            '    echo "ERROR: Could not find a valid .app bundle in the archive."\n'
-                            '    sleep 10\n'
-                            '    exit 1\n'
-                            'fi\n\n'
-                            'echo "Found bundle at: $SOURCE_APP_PATH"\n'
-                            'if [ -d "$FINAL_APP_PATH" ]; then\n'
-                            '    rm -rf "$FINAL_APP_PATH"\n'
-                            'fi\n\n'
-                            'echo "Installing new version to /Applications..."\n'
-                            'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\n\n'
-                            f'OLD_APP_PATH="{old_app_path or ""}"\n\n'
-                            'echo "Cleaning up the original application location..."\n'
-                            'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\n'
-                            '    rm -rf "$OLD_APP_PATH"\n'
-                            '    echo "Successfully removed old version from $OLD_APP_PATH"\n'
-                            'else\n'
-                            '    echo "No cleanup of original location needed (already in /Applications or not found)."\n'
-                            'fi\n\n'
-                            'echo "Relaunching AutoVerse..."\n'
-                            'open "$FINAL_APP_PATH"\n\n'
-                            'echo "Cleaning up temporary files..."\n'
-                            'rm -rf "$TEMP_DIR"\n'
-                            'rm "$ZIP_PATH"\n'
-                            'rm -- "$0"\n'
-                        )
-                        f.write(script_content)
+                        if sys.platform == 'darwin':
+                            # This macOS part is robust and does not need changes.
+                            final_app_path = "/Applications/AutoVerse.app"
+                            old_app_path = get_true_application_path()
+                            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
+                                script_path = f.name
+                                script_content = (
+                                    "#!/bin/bash\\n\\n"
+                                    'echo "--- AutoVerse Updater ---\\n"\\n'
+                                    "sleep 3\\n"
+                                    f'ZIP_PATH="{zip_path}"\\n'
+                                    f'FINAL_APP_PATH="{final_app_path}"\\n'
+                                    f'TEMP_DIR=$(mktemp -d)\\n\\n'
+                                    'echo "Unzipping downloaded archive..."\\n'
+                                    'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\\n\\n'
+                                    'echo "Searching for application bundle..."\\n'
+                                    'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n\\n'
+                                    'if [ -z "$SOURCE_APP_PATH" ]; then\\n'
+                                    '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\\n'
+                                    '    if [ -n "$NESTED_ZIP" ]; then\\n'
+                                    '       echo "Found and extracting nested zip..."\\n'
+                                    '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\\n'
+                                    '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n'
+                                    '    fi\\n'
+                                    'fi\\n\\n'
+                                    'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\\n'
+                                    '    echo "ERROR: Could not find a valid .app bundle in the archive."\\n'
+                                    '    sleep 10\\n'
+                                    '    exit 1\\n'
+                                    'fi\\n\\n'
+                                    'echo "Found bundle at: $SOURCE_APP_PATH"\\n'
+                                    'if [ -d "$FINAL_APP_PATH" ]; then\\n'
+                                    '    rm -rf "$FINAL_APP_PATH"\\n'
+                                    'fi\\n\\n'
+                                    'echo "Installing new version to /Applications..."\\n'
+                                    'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\\n\\n'
+                                    f'OLD_APP_PATH="{old_app_path or ""}"\\n\\n'
+                                    'echo "Cleaning up the original application location..."\\n'
+                                    'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\\n'
+                                    '    rm -rf "$OLD_APP_PATH"\\n'
+                                    '    echo "Successfully removed old version from $OLD_APP_PATH"\\n'
+                                    'else\\n'
+                                    '    echo "No cleanup of original location needed (already in /Applications or not found)."\\n'
+                                    'fi\\n\\n'
+                                    'echo "Relaunching AutoVerse..."\\n'
+                                    'open "$FINAL_APP_PATH"\\n\\n'
+                                    'echo "Cleaning up temporary files..."\\n'
+                                    'rm -rf "$TEMP_DIR"\\n'
+                                    'rm "$ZIP_PATH"\\n'
+                                    'rm -- "$0"\\n'
+                                )
+                                f.write(script_content)
 
-                    os.chmod(script_path, 0o755)
-                    subprocess.Popen(['open', '-a', 'Terminal', script_path])
-                
-                elif sys.platform == 'win32':
-                    install_dir = os.path.dirname(sys.executable)
-                    relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
-                    
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
-                        script_path = f.name
-                        # --- Final, Hardened PowerShell Script ---
-                        script_content = (
-                            f'$installDir = "{install_dir}"\n'
-                            f'$zipPath = "{zip_path}"\n'
-                            f'$relaunchPath = "{relaunch_path}"\n\n'
+                            os.chmod(script_path, 0o755)
+                            subprocess.Popen(['open', '-a', 'Terminal', script_path])
+                        
+                        elif sys.platform == 'win32':
+                            install_dir = os.path.dirname(sys.executable)
+                            relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                             
-                            'Write-Host "--- AutoVerse Updater: Starting... ---" -ForegroundColor Green\n'
-                            'Write-Host "Waiting 5 seconds for old application to close..."\n'
-                            'Start-Sleep -Seconds 5\n\n'
+                            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
+                                script_path = f.name
+                                # --- THIS IS THE CORRECTED POWERSHELL SCRIPT ---
+                                script_content = (
+                                    f'$installDir = "{install_dir}"\\n'
+                                    f'$zipPath = "{zip_path}"\\n'
+                                    f'$relaunchPath = "{relaunch_path}"\\n\\n'
+
+                                    'Write-Host "--- AutoVerse Updater: Starting... ---" -ForegroundColor Green\\n'
+                                    'Write-Host "Waiting 5 seconds for the old application to close..."\\n'
+                                    'Start-Sleep -Seconds 5\\n\\n'
+
+                                    'Write-Host "Step 1: Removing old application files..." -ForegroundColor Cyan\\n'
+                                    'if (Test-Path $installDir) {\\n'
+                                    '    Get-ChildItem -Path $installDir | ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName }\\n'
+                                    '}\\n\\n'
+
+                                    'Write-Host "Step 2: Extracting new version..." -ForegroundColor Cyan\\n'
+                                    'if (-not (Test-Path $installDir)) {\\n'
+                                    '    New-Item -ItemType Directory -Path $installDir -Force | Out-Null\\n'
+                                    '}\\n'
+                                    'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\\n\\n'
+                                    
+                                    'Write-Host "Step 3: Finalizing installation..." -ForegroundColor Cyan\\n'
+                                    'Start-Sleep -Seconds 2\\n\\n'
+
+                                    'Write-Host "Step 4: Relaunching AutoVerse..." -ForegroundColor Green\\n'
+                                    'if (Test-Path $relaunchPath) {\\n'
+                                    '    Start-Process -FilePath $relaunchPath\\n'
+                                    '} else {\\n'
+                                    '    Write-Host "ERROR: Relaunch failed because AutoVerse.exe was not found." -ForegroundColor Red\\n'
+                                    '    Write-Host "Please start the application manually." -ForegroundColor Yellow\\n'
+                                    '}\\n\\n'
+
+                                    'Write-Host "Cleaning up... This window will close in 10 seconds."\\n'
+                                    'Start-Sleep -Seconds 10\\n'
+                                    'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\\n'
+                                    'Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\\n'
+                                )
+                                f.write(script_content)
                             
-                            # NEW LOGIC: Delete all old content FIRST.
-                            'Write-Host "Step 1: Removing old application files..." -ForegroundColor Cyan\n'
-                            'if (Test-Path $installDir) {\n'
-                            '    Get-ChildItem -Path $installDir | ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName }\n'
-                            '}\n\n'
+                            command_string = f'start "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
+                            subprocess.Popen(command_string, shell=True)
 
-                            # NEW LOGIC: Ensure directory exists, then extract into the EMPTY directory.
-                            'Write-Host "Step 2: Extracting new version..." -ForegroundColor Cyan\n'
-                            'if (-not (Test-Path $installDir)) {\n'
-                            '    New-Item -ItemType Directory -Path $installDir -Force\n'
-                            '}\n'
-                            'Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n\n'
-                            
-                            'Write-Host "Step 3: Relaunching AutoVerse..." -ForegroundColor Green\n'
-                            'Start-Process -FilePath $relaunchPath\n\n'
+                        logger.info(f"Update script written to '{script_path}'. Launching execution.")
+                        self.app.quit()
 
-                            'Write-Host "Cleaning up temporary files... This window will close automatically."\n'
-                            'Start-Sleep -Seconds 7\n'
-                            'Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
-                            'Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue\n'
-                        )
-                        f.write(script_content)
-                    
-                    # This launch command is correct.
-                    command_string = f'start "AutoVerse Updater" powershell.exe -ExecutionPolicy Bypass -File "{script_path}"'
-                    subprocess.Popen(command_string, shell=True)
-
-                logger.info(f"Update script written to '{script_path}'. Launching execution.")
-                self.app.quit()
-
-            except Exception as e:
-                logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
-                QMessageBox.critical(self.main_window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
+                    except Exception as e:
+                        logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
+                        QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
