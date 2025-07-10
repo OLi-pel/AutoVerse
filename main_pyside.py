@@ -479,7 +479,7 @@ def run_app():
                                 f.write(script_content)
                             
                             # This `start` command is necessary to launch the script in its own visible window from a GUI app.
-                            command_string = f'start "AutoVerse Updater" cmd /c "powershell.exe -ExecutionPolicy Bypass -NoProfile -File \'{script_path}\'"'
+                            command_string = f'start "AutoVerse Updater" cmd /c "powershell.exe -ExecutionPolicy Bypass -NoProfile -File \\"{script_path}\\""'
                             subprocess.Popen(command_string, shell=True)
 
                         # This logging and quit call will happen for BOTH macOS and Windows
