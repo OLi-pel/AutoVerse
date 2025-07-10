@@ -424,12 +424,18 @@ def run_app():
                         
                         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
                             script_path = f.name
-                            # This PowerShell script is a standard, proven pattern for self-elevation.
+
+                            # --- THIS IS THE FINAL FIX ---
+                            # Create a PowerShell-safe version of the path by replacing single backslashes with double backslashes.
+                            # This prevents characters like '\\t' from being misinterpreted as a TAB character by PowerShell.
+                            ps_safe_script_path = script_path.replace('\\', '\\\\')
+
                             script_content = (
                                 '# Check for Admin privileges\n'
                                 'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\n'
                                 '    # If not Admin, re-launch self with elevation and exit this instance.\n'
-                                '    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'' + f'{script_path}' + '\' -Elevated"\n'
+                                # Use the PowerShell-safe path variable in the command to re-launch.
+                                f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\' -Elevated"\n'
                                 '    Start-Process powershell -Verb RunAs -ArgumentList $arguments\n'
                                 '    exit\n'
                                 '}\n\n'
@@ -451,7 +457,6 @@ def run_app():
                                 '        Remove-Item -Recurse -Force -Path $installDir\n'
                                 '        Write-Host "Old directory removed."\n'
                                 '    }\n'
-                                # --- THIS IS THE FIX: Removed "| Out-Null" from the end of the next line ---
                                 '    New-Item -ItemType Directory -Path $installDir -Force\n\n'
                                 
                                 '    Write-Host "Step 3: Extracting the new version..." -ForegroundColor Cyan\n'
@@ -476,12 +481,8 @@ def run_app():
                             )
                             f.write(script_content)
                         
-                        # The subprocess call below is correct and does not need to be changed.
                         command_list = [
-                            "powershell.exe",
-                            "-ExecutionPolicy", "Bypass",
-                            "-NoProfile",
-                            "-File", script_path
+                            "powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", script_path
                         ]
                         subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
