@@ -2,7 +2,7 @@
 
 [Setup]
 AppName=AutoVerse
-AppVersion=1.0.1 
+AppVersion=1.0.0 
 ; ^ Remember to update this version number for new releases.
 ; --- [THE FIX]: Install for the current user in a non-admin location ---
 PrivilegesRequired=lowest

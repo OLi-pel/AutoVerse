@@ -435,7 +435,7 @@ def run_app():
                                 'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\n'
                                 '    # If not Admin, re-launch self with elevation and exit this instance.\n'
                                 # Use the PowerShell-safe path variable in the command to re-launch.
-                                f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\' -Elevated"\n'
+                                f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\'"\n'
                                 '    Start-Process powershell -Verb RunAs -ArgumentList $arguments\n'
                                 '    exit\n'
                                 '}\n\n'

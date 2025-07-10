@@ -46,18 +46,25 @@ class TranscriptionHandler:
         whisper_cache_path = None
         if self.cache_dir:
             try:
-                # Models will be stored in a 'whisper' subdirectory of the main cache folder.
-                whisper_cache_path = os.path.join(self.cache_dir, "whisper")
+                # The 'download_root' in whisper.load_model becomes the parent directory
+                # for the default '~/.cache/whisper' structure.
+                # So we pass the main app cache dir. Whisper will create a 'whisper' subfolder.
+                whisper_cache_path = self.cache_dir 
                 os.makedirs(whisper_cache_path, exist_ok=True)
-                logger.info(f"Ensured Whisper model cache directory exists: {whisper_cache_path}")
+                logger.info(f"Using application-specific cache directory for Whisper: {whisper_cache_path}")
             except OSError as e:
                 logger.error(f"Could not create cache directory {whisper_cache_path}. Models will use default cache. Error: {e}")
-                whisper_cache_path = None # Fallback to default if creation fails
+                whisper_cache_path = None # Fallback
 
         try:
             # Pass the explicit download_root to the load_model function.
-            # If whisper_cache_path is None, whisper uses its default location.
-            model = whisper.load_model(self.model_name, device=self.device, download_root=whisper_cache_path)
+            # If whisper_cache_path is None, whisper will use its default.
+            # This ensures models are stored in AppData/Roaming/AutoVerse/whisper
+            model = whisper.load_model(
+                self.model_name,
+                device=self.device,
+                download_root=whisper_cache_path
+            )
             
             logger.info(f"TranscriptionHandler: Whisper model '{self.model_name}' loaded successfully.")
             self._report_progress(f"Transcription model '{self.model_name}' loaded.", 100)
@@ -66,7 +73,7 @@ class TranscriptionHandler:
             logger.error(f"Error loading Whisper model: {e}", exc_info=True)
             self._report_progress(f"Error loading model: {e}", 0)
             raise
-
+        
     def transcribe(self, audio_path: str):
         """Transcribes the audio file."""
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")

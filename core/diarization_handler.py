@@ -45,45 +45,45 @@ class DiarizationHandler:
         cache directory and authentication token if provided.
         """
         if not self.use_auth_token or not self.hf_token:
-            logger.warning("Diarization disabled: Hugging Face token is required but not provided or not enabled.")
-            self._report_progress("Diarization disabled (no token).", 0)
+            # ... (rest of the guard clause is fine)
             return None
 
         logger.info("DiarizationHandler: Loading pyannote.audio pipeline...")
         self._report_progress("Loading diarization model (may download)...", 0)
         
-        original_cache = os.environ.get('HF_HUB_CACHE')
+        # --- THIS IS THE ROBUST METHOD ---
+        # It's better to modify the cache for this specific call than globally.
+        # Although your current approach is okay, this is slightly cleaner.
+        pyannote_cache_path = None
         if self.cache_dir:
             try:
+                # pyannote/huggingface_hub will cache to this directory.
                 pyannote_cache_path = os.path.join(self.cache_dir, "pyannote")
                 os.makedirs(pyannote_cache_path, exist_ok=True)
-                os.environ['HF_HUB_CACHE'] = pyannote_cache_path
-                logger.info(f"Set HF_HUB_CACHE for pyannote to: {pyannote_cache_path}")
+                logger.info(f"Using application-specific cache directory for pyannote: {pyannote_cache_path}")
             except OSError as e:
-                logger.error(f"Could not create pyannote cache directory. It will use the default. Error: {e}")
+                logger.error(f"Could not create pyannote cache directory. Using default. Error: {e}")
+                pyannote_cache_path = None
+        # --- END OF CHANGE ---
 
         try:
             pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-3.1",
-                use_auth_token=self.hf_token
+                use_auth_token=self.hf_token,
+                cache_dir=pyannote_cache_path  # <--- EXPLICITLY PASS THE CACHE DIR
             )
             pipeline.to(self.device)
             logger.info("DiarizationHandler: pyannote.audio pipeline loaded successfully.")
             self._report_progress("Diarization model loaded.", 100)
             return pipeline
         except Exception as e:
+            # ... (rest of the error handling is fine)
             logger.error(f"Failed to load pyannote pipeline: {e}", exc_info=True)
             self._report_progress(f"Diarization Error: {e}", 0)
             if "401" in str(e):
                  logger.error("Got a 401 Client Error. This strongly indicates the Hugging Face token is invalid or expired.")
                  self._report_progress("Diarization Error: Invalid Hugging Face token.", 0)
             return None
-        finally:
-            if original_cache:
-                os.environ['HF_HUB_CACHE'] = original_cache
-            elif 'HF_HUB_CACHE' in os.environ:
-                del os.environ['HF_HUB_CACHE']
-            logger.info("Restored original HF_HUB_CACHE environment.")
 
     def diarize(self, audio_path: str):
         """
