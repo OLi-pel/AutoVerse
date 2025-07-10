@@ -422,7 +422,7 @@ def run_app():
                         install_dir = os.path.dirname(sys.executable)
                         relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                         
-                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8') as f:
+                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
                             script_path = f.name
                             # This PowerShell script is a standard, proven pattern for self-elevation.
                             script_content = (
