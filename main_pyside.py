@@ -424,28 +424,43 @@ def run_app():
                         
                         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
                             script_path = f.name
-
-                            # --- THIS IS THE FINAL FIX ---
-                            # Create a PowerShell-safe version of the path by replacing single backslashes with double backslashes.
-                            # This prevents characters like '\\t' from being misinterpreted as a TAB character by PowerShell.
                             ps_safe_script_path = script_path.replace('\\', '\\\\')
+                            
+                            # --- Define a log file path in a known writable location ---
+                            log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
+                            ps_safe_log_path = log_file_path.replace('\\', '\\\\')
 
                             script_content = (
-                                '# Check for Admin privileges\n'
+                                # --- STEP 1: ADD AGGRESSIVE LOGGING ---
+                                f'$LogFile = "{ps_safe_log_path}"\n'
+                                'Start-Transcript -Path $LogFile -Append -Force\n\n'
+                                'Write-Host "--- AutoVerse Updater Script Started ---\n"\n'
+                                f'Write-Host "Script running from: {ps_safe_script_path}"\n'
+                                'Write-Host "Timestamp: $(Get-Date -Format s)"\n'
+
+                                # --- STEP 2: PRIVILEGE CHECK (Your existing logic is fine) ---
                                 'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\n'
-                                '    # If not Admin, re-launch self with elevation and exit this instance.\n'
-                                # Use the PowerShell-safe path variable in the command to re-launch.
+                                '    Write-Host "Not running as Admin. Attempting to re-launch with elevation..."\n'
                                 f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\'"\n'
-                                '    Start-Process powershell -Verb RunAs -ArgumentList $arguments\n'
-                                '    exit\n'
+                                '    try {\n'
+                                '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -ErrorAction Stop\n'
+                                '        Write-Host "Elevated process launched successfully."\n'
+                                '    } catch {\n'
+                                '        Write-Host "ERROR: Failed to launch elevated process."\n'
+                                '        Write-Host "Error details: $($_.Exception.Message)"\n'
+                                '        Read-Host "Press Enter to exit."\n' # Pause on failure to launch
+                                '    }\n'
+                                '    Stop-Transcript\n'
+                                '    exit 1\n' # Exit the non-elevated script
                                 '}\n\n'
                                 
-                                '# --- Main update logic runs below, only if the script is elevated ---\n'
+                                # --- STEP 3: MAIN UPDATE LOGIC (runs only if Admin) ---
+                                'Write-Host "--- Running in Administrator Mode ---\n" -ForegroundColor Green\n'
+                                
+                                # Define variables from your Python script
                                 f'$installDir = "{install_dir}"\n'
                                 f'$zipPath = "{zip_path}"\n'
                                 f'$relaunchPath = "{relaunch_path}"\n\n'
-                                
-                                'Write-Host "--- AutoVerse Updater (Administrator Mode) ---\\n" -ForegroundColor Green\n'
 
                                 'try {\n'
                                 '    Write-Host "Step 1: Pausing to allow the main application to close..."\n'
@@ -453,14 +468,14 @@ def run_app():
                                 
                                 '    Write-Host "Step 2: Clearing the installation directory..." -ForegroundColor Cyan\n'
                                 '    if (Test-Path $installDir) {\n'
-                                '        Write-Host "Deleting old directory: $installDir"\n'
-                                '        Remove-Item -Recurse -Force -Path $installDir\n'
+                                '        Write-Host "Attempting to remove old directory: $installDir"\n'
+                                '        Remove-Item -Recurse -Force -Path $installDir -ErrorAction Stop\n'
                                 '        Write-Host "Old directory removed."\n'
                                 '    }\n'
-                                '    New-Item -ItemType Directory -Path $installDir -Force\n\n'
+                                '    New-Item -ItemType Directory -Path $installDir -Force -ErrorAction Stop\n\n'
                                 
                                 '    Write-Host "Step 3: Extracting the new version..." -ForegroundColor Cyan\n'
-                                '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force\n'
+                                '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\n'
                                 '    Write-Host "Extraction complete."\n\n'
 
                                 '    Write-Host "Step 4: Relaunching AutoVerse..." -ForegroundColor Green\n'
@@ -475,9 +490,13 @@ def run_app():
                                 '    Write-Host "\\n----------------- AN ERROR OCCURRED -----------------" -ForegroundColor Red\n'
                                 '    Write-Host "The update could not be completed." -ForegroundColor Red\n'
                                 '    Write-Host "ERROR MESSAGE: $($_.Exception.Message)" -ForegroundColor Yellow\n'
+                                '    Write-Host "Full Error Record: $($_.ToString())" -ForegroundColor Yellow\n'
                                 '    Write-Host "---------------------------------------------------" -ForegroundColor Red\n'
-                                '}\n\n'
-                                'Read-Host "The updater has finished. Press Enter to close this window."\n'
+                                '} finally {\n'
+                                '    # This block runs whether there was an error or not\n'
+                                '    Read-Host "The updater has finished. Press Enter to close this window."\n'
+                                '    Stop-Transcript\n'
+                                '}\n'
                             )
                             f.write(script_content)
                         
