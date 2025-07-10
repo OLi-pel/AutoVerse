@@ -431,71 +431,42 @@ def run_app():
                             ps_safe_log_path = log_file_path.replace('\\', '\\\\')
 
                             script_content = (
-                                # --- STEP 1: ADD AGGRESSIVE LOGGING ---
                                 f'$LogFile = "{ps_safe_log_path}"\n'
                                 'Start-Transcript -Path $LogFile -Append -Force\n\n'
                                 'Write-Host "--- AutoVerse Updater Script Started ---\n"\n'
                                 f'Write-Host "Script running from: {ps_safe_script_path}"\n'
                                 'Write-Host "Timestamp: $(Get-Date -Format s)"\n'
+                                
+                                # --- THE FIX ---
+                                # Get the directory where the temp script is located. This is crucial.
+                                f'$scriptDir = Split-Path -Parent -Path "{ps_safe_script_path}"\n' 
 
-                                # --- STEP 2: PRIVILEGE CHECK (Your existing logic is fine) ---
                                 'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\n'
-                                '    Write-Host "Not running as Admin. Attempting to re-launch with elevation..."\n'
+                                '    Write-Host "Not Admin. Attempting elevation..."\n'
                                 f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\'"\n'
                                 '    try {\n'
-                                '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -ErrorAction Stop\n'
-                                '        Write-Host "Elevated process launched successfully."\n'
-                                '    } catch {\n'
-                                '        Write-Host "ERROR: Failed to launch elevated process."\n'
-                                '        Write-Host "Error details: $($_.Exception.Message)"\n'
-                                '        Read-Host "Press Enter to exit."\n' # Pause on failure to launch
-                                '    }\n'
-                                '    Stop-Transcript\n'
-                                '    exit 1\n' # Exit the non-elevated script
+                                # Add -WorkingDirectory to the command
+                                '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -WorkingDirectory $scriptDir -ErrorAction Stop\n'
+                                '        Write-Host "Elevated process launched."\n'
+                                '    } catch { Write-Host "ERROR: Failed to launch: $($_.Exception.Message)"; Read-Host "Press Enter." }\n'
+                                '    Stop-Transcript\n; exit 1\n'
                                 '}\n\n'
                                 
-                                # --- STEP 3: MAIN UPDATE LOGIC (runs only if Admin) ---
-                                'Write-Host "--- Running in Administrator Mode ---\n" -ForegroundColor Green\n'
+                                'Write-Host "--- Running as Admin ---" -ForegroundColor Green\n'
+                                f'$installDir = "{install_dir}"\n$zipPath = "{zip_path}"\n$relaunchPath = "{relaunch_path}"\n\n'
                                 
-                                # Define variables from your Python script
-                                f'$installDir = "{install_dir}"\n'
-                                f'$zipPath = "{zip_path}"\n'
-                                f'$relaunchPath = "{relaunch_path}"\n\n'
-
                                 'try {\n'
-                                '    Write-Host "Step 1: Pausing to allow the main application to close..."\n'
-                                '    Start-Sleep -Seconds 4\n\n'
-                                
-                                '    Write-Host "Step 2: Clearing the installation directory..." -ForegroundColor Cyan\n'
-                                '    if (Test-Path $installDir) {\n'
-                                '        Write-Host "Attempting to remove old directory: $installDir"\n'
-                                '        Remove-Item -Recurse -Force -Path $installDir -ErrorAction Stop\n'
-                                '        Write-Host "Old directory removed."\n'
-                                '    }\n'
+                                '    Write-Host "Step 1: Pausing..."; Start-Sleep -Seconds 4\n\n'
+                                '    Write-Host "Step 2: Clearing $installDir"; if (Test-Path $installDir) { Remove-Item -Recurse -Force -Path $installDir -ErrorAction Stop }\n'
                                 '    New-Item -ItemType Directory -Path $installDir -Force -ErrorAction Stop\n\n'
-                                
-                                '    Write-Host "Step 3: Extracting the new version..." -ForegroundColor Cyan\n'
-                                '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\n'
-                                '    Write-Host "Extraction complete."\n\n'
-
-                                '    Write-Host "Step 4: Relaunching AutoVerse..." -ForegroundColor Green\n'
-                                '    if (Test-Path $relaunchPath) {\n'
-                                '       Start-Process -FilePath $relaunchPath\n'
-                                '       Write-Host "Update Complete!" -ForegroundColor Green\n'
-                                '    } else {\n'
-                                '       Write-Error "Relaunch failed: AutoVerse.exe not found at $relaunchPath"\n'
-                                '    }\n'
-
+                                '    Write-Host "Step 3: Extracting new version..."; Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\n\n'
+                                '    Write-Host "Step 4: Relaunching..."; if (Test-Path $relaunchPath) { Start-Process -FilePath $relaunchPath } else { Write-Error "Relaunch failed." }\n'
                                 '} catch {\n'
-                                '    Write-Host "\\n----------------- AN ERROR OCCURRED -----------------" -ForegroundColor Red\n'
-                                '    Write-Host "The update could not be completed." -ForegroundColor Red\n'
-                                '    Write-Host "ERROR MESSAGE: $($_.Exception.Message)" -ForegroundColor Yellow\n'
-                                '    Write-Host "Full Error Record: $($_.ToString())" -ForegroundColor Yellow\n'
-                                '    Write-Host "---------------------------------------------------" -ForegroundColor Red\n'
+                                '    Write-Host "\\n--- ERROR ---" -ForegroundColor Red\n'
+                                '    Write-Host "$($_.Exception.Message)" -ForegroundColor Yellow\n'
+                                '    Write-Host "$($_.ToString())" -ForegroundColor Yellow\n'
                                 '} finally {\n'
-                                '    # This block runs whether there was an error or not\n'
-                                '    Read-Host "The updater has finished. Press Enter to close this window."\n'
-                                '    Stop-Transcript\n'
+                                '    Read-Host "Updater finished. Press Enter."\n; Stop-Transcript\n'
                                 '}\n'
                             )
                             f.write(script_content)
