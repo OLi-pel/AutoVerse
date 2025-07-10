@@ -447,13 +447,9 @@ def run_app():
                                 
                                 '    Write-Host "Step 2: Clearing the installation directory..." -ForegroundColor Cyan\n'
                                 '    if (Test-Path $installDir) {\n'
-                                '       $items = Get-ChildItem -Path $installDir -Recurse\n'
-                                '       if ($items) {\n'
-                                '           Remove-Item -Recurse -Force -Path $items.FullName\n'
-                                '           Write-Host "Old files removed."\n'
-                                '       }\n'
-                                '    } else {\n'
-                                '        Write-Host "Installation directory does not exist. Creating it."\n'
+                                '        Write-Host "Deleting old directory: $installDir"\n'
+                                '        Remove-Item -Recurse -Force -Path $installDir\n'
+                                '        Write-Host "Old directory removed."\n'
                                 '    }\n'
                                 # --- THIS IS THE FIX: Removed "| Out-Null" from the end of the next line ---
                                 '    New-Item -ItemType Directory -Path $installDir -Force\n\n'
