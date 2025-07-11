@@ -4,18 +4,16 @@ import sys
 import multiprocessing
 import os
 import logging
-import ssl      
+import ssl
 import certifi
 from queue import Empty
-import platform # --- NEW IMPORT
-import requests # --- NEW IMPORT
-import tempfile # --- NEW IMPORT
-import subprocess # --- NEW IMPORT
-import shutil # --- NEW IMPORT
-from packaging.version import Version # --- NEW IMPORT
+import platform
+import requests
+import tempfile
+import subprocess
+import shutil
+from packaging.version import Version
 
-# Keep only the most essential, safe imports at the global level
-# QApplication must be imported here for the app instance to be created.
 from PySide6.QtWidgets import QApplication
 
 def configure_ssl_for_bundle():
@@ -26,38 +24,25 @@ def configure_ssl_for_bundle():
     """
     if sys.platform == 'darwin' and getattr(sys, 'frozen', False):
         try:
-            # Get the path to the certifi certificate bundle
             cert_path = certifi.where()
-            
-            # Set the SSL_CERT_FILE environment variable for this process
-            # This is the primary method used by 'requests', 'urllib3', etc.
             os.environ['SSL_CERT_FILE'] = cert_path
-            
-            # Also configure the default SSL context for lower-level libraries
             ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=cert_path)
-            
             logging.info(f"SSL Context configured to use certifi bundle at: {cert_path}")
-
         except Exception as e:
             logging.error(f"CRITICAL: Failed to configure SSL certificates for bundle. Network requests may fail. Error: {e}")
 
-# --- NEW HELPER FUNCTION ---
 def _get_bundled_ffmpeg_path():
     """Checks if the app is a PyInstaller bundle and returns the path to ffmpeg."""
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
         return os.path.join(sys._MEIPASS, 'bin', exe_name)
-    return None # Return None if not bundled
-
+    return None
 
 def run_app():
     """
     Contains all application logic and imports.
     """
-    # --- [THE FIX] Added 'Qt' to this import line ---
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
-    # ----------------------------------------------------
-
     from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
     from PySide6.QtUiTools import QUiLoader
@@ -74,54 +59,28 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
-
     def get_true_application_path():
-        """
-        Returns the absolute, real path to the .app bundle, correctly
-        handling macOS App Translocation by actively searching up the directory tree.
-        """
         if not (getattr(sys, 'frozen', False) and sys.platform == 'darwin'):
-            # Only applicable for frozen macOS apps.
             return None
-
         try:
-            # Get the canonical path of the executable, resolving symlinks/translocation.
             executable_path = os.path.realpath(sys.executable)
-            
-            # Start walking up from the executable's directory.
             current_path = os.path.dirname(executable_path)
-            
-            # Loop up to 6 levels deep, which is more than enough.
-            # This prevents an infinite loop in case of a strange filesystem.
             for _ in range(6):
-                # If the current directory path ends with .app, we've found it!
                 if current_path.endswith('.app'):
                     return current_path
-                
-                # Otherwise, go up one level.
                 parent_path = os.path.dirname(current_path)
-                
-                # If we've reached the root ('/') and haven't found it, stop.
                 if parent_path == current_path:
                     break
-                
                 current_path = parent_path
-                
         except Exception as e:
-            # Log any unexpected errors during path resolution.
-            # We need the logger to be configured to see this.
             try:
                 logging.error(f"Error while trying to determine application path: {e}")
             except:
-                pass # Ignore if logging isn't set up.
-                
-        # If the loop finishes without finding the .app bundle, return None.
+                pass
         return None
 
-    # --- UPDATE CHECKER THREAD ---
     class UpdateChecker(QThread):
         update_available = Signal(str, str, str) # version, release_notes, download_url
-
         def __init__(self, owner, repo):
             super().__init__()
             self.owner = owner
@@ -171,16 +130,12 @@ def run_app():
             except Exception as e:
                 logger.error(f"An unexpected error occurred during update check: {e}", exc_info=True)
 
-
-    # --- DOWNLOADER THREAD ---
     class Downloader(QThread):
         download_progress = Signal(int)
         download_finished = Signal(bool, str)
-
         def __init__(self, url):
             super().__init__()
             self.url = url
-
         def run(self):
             try:
                 logger.info(f"Starting download from: {self.url}")
@@ -198,10 +153,8 @@ def run_app():
                         downloaded_size += len(chunk)
                         progress = int((downloaded_size / total_size) * 100) if total_size > 0 else 0
                         self.download_progress.emit(progress)
-
                 logger.info(f"Download complete. File saved to: {file_path}")
                 self.download_finished.emit(True, file_path)
-
             except requests.RequestException as e:
                 logger.error(f"Download failed: {e}", exc_info=True)
                 self.download_finished.emit(False, "")
@@ -229,81 +182,45 @@ def run_app():
             
             self.config_manager = ConfigManager(constants.DEFAULT_CONFIG_FILE)
             self.is_processing = False
-            
             self._promote_widgets()
-
             self.correction_logic = CorrectionViewLogic(self.window)
-
             self.tip_widgets = {
-                # --- Main Transcription Tab ---
-                self.window.audio_file_entry: "audio_file_browse",
-                self.window.browse_button: "audio_file_browse",
-                self.window.model_dropdown: "transcription_model_dropdown",
-                self.window.diarization_checkbutton: "enable_diarization_checkbox",
-                self.window.auto_merge_checkbutton: "auto_merge_checkbutton",
-                self.window.timestamps_checkbutton_2: "include_timestamps_checkbox",
-                self.window.end_times_checkbutton: "include_end_times_checkbox",
-                self.window.huggingface_token_entry: "huggingface_token_entry",
-                self.window.save_token_button: "save_huggingface_token_button",
-                self.window.start_processing_button: "start_processing_button",
-                self.window.status_label: "status_label",
-                self.window.progress_bar: "progress_bar",
-                self.window.output_text_area: "output_text_area",
-                self.window.correction_button: "correction_window_button",
-                self.window.show_tips_checkbox: "show_tips_checkbox_main",
+                self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.diarization_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
-
             self._setup_fonts()
             self._setup_icons()
-            
             self.app.aboutToQuit.connect(self.cleanup)
-
             self.audio_file_paths = []
             self.process = None
             self.queue = None
             self.last_single_file_result_path = None
-
             self.timer = QTimer()
             self.timer.timeout.connect(self.check_queue)
-            
             self.connect_signals()
             self.load_initial_settings()
             
-            # --- [THE FIX] UPDATE LOGIC IS NOW CORRECTLY INDENTED INSIDE __init__ ---
             if getattr(sys, 'frozen', False):
                 logger.info("Application is frozen, initializing update check.")
-                # IMPORTANT: Replace with your GitHub username and repository name if needed
                 self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
                 self.update_checker.update_available.connect(self.prompt_for_update)
                 self.update_checker.start()
             else:
                 logger.info("Application not frozen. Skipping update check.")
-            # --------------------------------------------------------------------
-
+            
             self.window.show()
 
         def _apply_tips_state(self, is_enabled):
-            # --- [NEW] Hide or show the entire status bar ---
             self.window.statusBar().setVisible(is_enabled)
-
             for widget, tip_key in self.tip_widgets.items():
                 if not widget: continue
-                if is_enabled:
-                    tip_text = tips_data.get_tip("main_window", tip_key)
-                    widget.setStatusTip(tip_text or "")
-                else:
-                    widget.setStatusTip("")
+                if is_enabled: widget.setStatusTip(tips_data.get_tip("main_window", tip_key) or "")
+                else: widget.setStatusTip("")
 
         @Slot(int)
         def on_tips_toggled(self, state):
             is_enabled = (state == Qt.Checked.value)
-            
-            # Apply state to the main window and status bar
             self._apply_tips_state(is_enabled)
-            
-            # --- [NEW] Tell the correction logic to apply the state too ---
             self.correction_logic.set_tips_enabled(is_enabled)
-            
             self.config_manager.set_main_window_show_tips(is_enabled)
             logger.info(f"Tips display set to: {is_enabled} and preference saved.")
                 
@@ -317,7 +234,6 @@ def run_app():
                 self.correction_logic.audio_player.destroy()
             logger.info("Cleanup finished.")
 
-        # --- ALL UPDATE METHODS CORRECTLY DEFINED IN THE CLASS ---
         @Slot(str, str, str)
         def prompt_for_update(self, version, notes, url):
             msg_box = QMessageBox(self.window)
@@ -351,140 +267,152 @@ def run_app():
             self.trigger_updater(file_path)
 
         def trigger_updater(self, zip_path):
-                    """
-                    Creates and launches a native OS script that intelligently finds the
-                    .app bundle on macOS and works with the clean Windows artifact.
-                    """
-                    try:
-                        script_path = ""
-                        script_content = ""
+            try:
+                script_path = ""
+                script_content = ""
 
-                        if sys.platform == 'darwin':
-                            # This macOS part is robust and does not need changes.
-                            final_app_path = "/Applications/AutoVerse.app"
-                            old_app_path = get_true_application_path()
-                            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
-                                script_path = f.name
-                                script_content = (
-                                    "#!/bin/bash\\n\\n"
-                                    'echo "--- AutoVerse Updater ---\\n"\\n'
-                                    "sleep 3\\n"
-                                    f'ZIP_PATH="{zip_path}"\\n'
-                                    f'FINAL_APP_PATH="{final_app_path}"\\n'
-                                    f'TEMP_DIR=$(mktemp -d)\\n\\n'
-                                    'echo "Unzipping downloaded archive..."\\n'
-                                    'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\\n\\n'
-                                    'echo "Searching for application bundle..."\\n'
-                                    'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n\\n'
-                                    'if [ -z "$SOURCE_APP_PATH" ]; then\\n'
-                                    '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\\n'
-                                    '    if [ -n "$NESTED_ZIP" ]; then\\n'
-                                    '       echo "Found and extracting nested zip..."\\n'
-                                    '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\\n'
-                                    '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n'
-                                    '    fi\\n'
-                                    'fi\\n\\n'
-                                    'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\\n'
-                                    '    echo "ERROR: Could not find a valid .app bundle in the archive."\\n'
-                                    '    sleep 10\\n'
-                                    '    exit 1\\n'
-                                    'fi\\n\\n'
-                                    'echo "Found bundle at: $SOURCE_APP_PATH"\\n'
-                                    'if [ -d "$FINAL_APP_PATH" ]; then\\n'
-                                    '    rm -rf "$FINAL_APP_PATH"\\n'
-                                    'fi\\n\\n'
-                                    'echo "Installing new version to /Applications..."\\n'
-                                    'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\\n\\n'
-                                    f'OLD_APP_PATH="{old_app_path or ""}"\\n\\n'
-                                    'echo "Cleaning up the original application location..."\\n'
-                                    'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\\n'
-                                    '    rm -rf "$OLD_APP_PATH"\\n'
-                                    '    echo "Successfully removed old version from $OLD_APP_PATH"\\n'
-                                    'else\\n'
-                                    '    echo "No cleanup of original location needed (already in /Applications or not found)."\\n'
-                                    'fi\\n\\n'
-                                    'echo "Relaunching AutoVerse..."\\n'
-                                    'open "$FINAL_APP_PATH"\\n\\n'
-                                    'echo "Cleaning up temporary files..."\\n'
-                                    'rm -rf "$TEMP_DIR"\\n'
-                                    'rm "$ZIP_PATH"\\n'
-                                    'rm -- "$0"\\n'
-                                )
-                                f.write(script_content)
+                if sys.platform == 'darwin':
+                    # macOS logic remains unchanged
+                    final_app_path = "/Applications/AutoVerse.app"
+                    old_app_path = get_true_application_path()
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
+                        script_path = f.name
+                        script_content = (
+                            "#!/bin/bash\\n\\n"
+                            'echo "--- AutoVerse Updater ---\\n"\\n'
+                            "sleep 3\\n"
+                            f'ZIP_PATH="{zip_path}"\\n'
+                            f'FINAL_APP_PATH="{final_app_path}"\\n'
+                            f'TEMP_DIR=$(mktemp -d)\\n\\n'
+                            'echo "Unzipping downloaded archive..."\\n'
+                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\\n\\n'
+                            'echo "Searching for application bundle..."\\n'
+                            'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n\\n'
+                            'if [ -z "$SOURCE_APP_PATH" ]; then\\n'
+                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\\n'
+                            '    if [ -n "$NESTED_ZIP" ]; then\\n'
+                            '       echo "Found and extracting nested zip..."\\n'
+                            '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\\n'
+                            '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n'
+                            '    fi\\n'
+                            'fi\\n\\n'
+                            'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\\n'
+                            '    echo "ERROR: Could not find a valid .app bundle in the archive."\\n'
+                            '    sleep 10\\n'
+                            '    exit 1\\n'
+                            'fi\\n\\n'
+                            'echo "Found bundle at: $SOURCE_APP_PATH"\\n'
+                            'if [ -d "$FINAL_APP_PATH" ]; then\\n'
+                            '    rm -rf "$FINAL_APP_PATH"\\n'
+                            'fi\\n\\n'
+                            'echo "Installing new version to /Applications..."\\n'
+                            'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\\n\\n'
+                            f'OLD_APP_PATH="{old_app_path or ""}"\\n\\n'
+                            'echo "Cleaning up the original application location..."\\n'
+                            'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\\n'
+                            '    rm -rf "$OLD_APP_PATH"\\n'
+                            '    echo "Successfully removed old version from $OLD_APP_PATH"\\n'
+                            'else\\n'
+                            '    echo "No cleanup of original location needed (already in /Applications or not found)."\\n'
+                            'fi\\n\\n'
+                            'echo "Relaunching AutoVerse..."\\n'
+                            'open "$FINAL_APP_PATH"\\n\\n'
+                            'echo "Cleaning up temporary files..."\\n'
+                            'rm -rf "$TEMP_DIR"\\n'
+                            'rm "$ZIP_PATH"\\n'
+                            'rm -- "$0"\\n'
+                        )
+                        f.write(script_content)
 
-                            os.chmod(script_path, 0o755)
-                            subprocess.Popen(['open', '-a', 'Terminal', script_path])
+                    os.chmod(script_path, 0o755)
+                    subprocess.Popen(['open', '-a', 'Terminal', script_path])
+                
+                elif sys.platform == 'win32':
+                    install_dir = os.path.dirname(sys.executable)
+                    relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
+                    
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
+                        script_path = f.name
+                        log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
                         
-                        elif sys.platform != 'win32':
-                            QMessageBox.information(self.window, "Not Supported", "Auto-updates are currently only configured for macOS on this branch.")
-                            return
-
-                        install_dir = os.path.dirname(sys.executable)
-                        relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
-                        
-                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
-                            script_path = f.name
-                            ps_safe_script_path = script_path.replace('\\', '\\\\')
+                        # THE CORRECTED, ROBUST POWERSHELL SCRIPT
+                        script_content = (
+                            f'Start-Transcript -Path "{log_file_path}" -Append -Force\\n\\n'
+                            'Write-Host "--- AutoVerse Updater Script Initializing ---\\n"\\n'
+                            # Dynamically find the script's own path and directory
+                            '$scriptPath = $MyInvocation.MyCommand.Path\\n'
+                            '$scriptDir = Split-Path -Parent -Path $scriptPath\\n'
+                            'Write-Host "Script Directory determined as: $scriptDir"\\n'
+                            # Check for admin privileges.
+                            'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\\n'
+                            '    Write-Host "Not running as Admin. Attempting to elevate..."\\n'
+                            '    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \`"$scriptPath\`""\\n'
+                            '    try {\\n'
+                            # Use the dynamically found $scriptDir as the working directory for the new process.
+                            '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -WorkingDirectory $scriptDir -ErrorAction Stop\\n'
+                            '        Write-Host "Elevated process launched successfully."\\n'
+                            '    } catch {\\n'
+                            '        Write-Host "ERROR: Failed to elevate process: $($_.Exception.Message)"\\n'
+                            '        Read-Host "Press Enter to exit."\\n'
+                            '    }\\n'
+                            '    Stop-Transcript\\n'
+                            '    exit\\n'
+                            '}\\n\\n'
                             
-                            # --- Define a log file path in a known writable location ---
-                            log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
-                            ps_safe_log_path = log_file_path.replace('\\', '\\\\')
-
-                            script_content = (
-                                f'$LogFile = "{ps_safe_log_path}"\n'
-                                'Start-Transcript -Path $LogFile -Append -Force\n\n'
-                                'Write-Host "--- AutoVerse Updater Script Started ---\n"\n'
-                                f'Write-Host "Script running from: {ps_safe_script_path}"\n'
-                                'Write-Host "Timestamp: $(Get-Date -Format s)"\n'
+                            # This part of the script will only run if it has admin privileges.
+                            'Write-Host "--- Running as Administrator ---" -ForegroundColor Green\\n'
+                            'Write-Host "The application will now be closed to perform the update."\\n\\n'
+                            f'$installDir = "{install_dir}"\\n'
+                            f'$zipPath = "{zip_path}"\\n'
+                            f'$relaunchPath = "{relaunch_path}"\\n\\n'
+                            
+                            'try {\\n'
+                            # FIX 1: Kill the process before trying to delete anything.
+                            '    Write-Host "Step 1: Terminating any running AutoVerse process..."\\n'
+                            '    Get-Process -Name "AutoVerse" -ErrorAction SilentlyContinue | Stop-Process -Force\\n'
+                            '    Start-Sleep -Seconds 2 # Give the OS time to release file handles.\\n\\n'
                                 
-                                # --- THE FIX ---
-                                # Get the directory where the temp script is located. This is crucial.
-                                f'$scriptDir = Split-Path -Parent -Path "{ps_safe_script_path}"\n' 
+                            '    Write-Host "Step 2: Clearing old application files from: $installDir"\\n'
+                            # Delete the contents of the directory, which is more robust
+                            '    if (Test-Path $installDir) { Remove-Item -Recurse -Force -Path "$installDir\\*" -ErrorAction Stop }\\n'
+                            '    else { New-Item -ItemType Directory -Path $installDir -Force -ErrorAction Stop }\\n\\n'
+                            
+                            '    Write-Host "Step 3: Extracting new version to $installDir"\\n'
+                            '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\\n\\n'
+                            
+                            '    Write-Host "Step 4: Relaunching AutoVerse..."\\n'
+                            '    if (Test-Path $relaunchPath) {\\n'
+                            '        Start-Process -FilePath $relaunchPath\\n'
+                            '        Write-Host "Relaunch successful."\\n'
+                            '    } else {\\n'
+                            '        Write-Error "Relaunch failed. Executable not found at: $relaunchPath"\\n'
+                            '    }\\n'
+                            '} catch {\\n'
+                            '    Write-Host "--- FATAL ERROR DURING UPDATE ---" -ForegroundColor Red\\n'
+                            '    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Yellow\\n'
+                            '    Write-Host "Please close this window and try updating manually from the GitHub page." -ForegroundColor Cyan\\n'
+                            '    Read-Host "Press Enter to exit."\\n'
+                            '} finally {\\n'
+                            '    Write-Host "Update script finished." -ForegroundColor Gray\\n'
+                            '    Stop-Transcript\\n'
+                            '}\\n'
+                        )
+                        f.write(script_content)
+                    
+                    # Launch the script in a new console window
+                    command_list = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", script_path]
+                    subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
-                                'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\n'
-                                '    Write-Host "Not Admin. Attempting elevation..."\n'
-                                f'    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \'{ps_safe_script_path}\'"\n'
-                                '    try {\n'
-                                # Add -WorkingDirectory to the command
-                                '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -WorkingDirectory $scriptDir -ErrorAction Stop\n'
-                                '        Write-Host "Elevated process launched."\n'
-                                '    } catch { Write-Host "ERROR: Failed to launch: $($_.Exception.Message)"; Read-Host "Press Enter." }\n'
-                                '    Stop-Transcript\n; exit 1\n'
-                                '}\n\n'
-                                
-                                'Write-Host "--- Running as Admin ---" -ForegroundColor Green\n'
-                                f'$installDir = "{install_dir}"\n$zipPath = "{zip_path}"\n$relaunchPath = "{relaunch_path}"\n\n'
-                                
-                                'try {\n'
-                                '    Write-Host "Step 1: Pausing..."; Start-Sleep -Seconds 4\n\n'
-                                '    Write-Host "Step 2: Clearing $installDir"; if (Test-Path $installDir) { Remove-Item -Recurse -Force -Path $installDir -ErrorAction Stop }\n'
-                                '    New-Item -ItemType Directory -Path $installDir -Force -ErrorAction Stop\n\n'
-                                '    Write-Host "Step 3: Extracting new version..."; Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\n\n'
-                                '    Write-Host "Step 4: Relaunching..."; if (Test-Path $relaunchPath) { Start-Process -FilePath $relaunchPath } else { Write-Error "Relaunch failed." }\n'
-                                '} catch {\n'
-                                '    Write-Host "\\n--- ERROR ---" -ForegroundColor Red\n'
-                                '    Write-Host "$($_.Exception.Message)" -ForegroundColor Yellow\n'
-                                '    Write-Host "$($_.ToString())" -ForegroundColor Yellow\n'
-                                '} finally {\n'
-                                '    Read-Host "Updater finished. Press Enter."\n; Stop-Transcript\n'
-                                '}\n'
-                            )
-                            f.write(script_content)
-                        
-                        command_list = [
-                            "powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", script_path
-                        ]
-                        subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                # This logging and quit call will happen for BOTH macOS and Windows
+                logger.info(f"Update script written to '{script_path}'. Launching execution.")
+                self.app.quit()
 
-                        # This logging and quit call will happen for BOTH macOS and Windows
-                        logger.info(f"Update script written to '{script_path}'. Launching execution.")
-                        self.app.quit()
-
-                    except Exception as e:
-                        logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
-                        QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
+            except Exception as e:
+                logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
+                QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
+            # ... (This method is long and correct, no need to include it again)
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
             self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
             self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
@@ -552,6 +480,7 @@ def run_app():
             self.window.correction_play_pause_btn.setIcon(self.window.icon_play)
 
         def connect_signals(self):
+            # ... (This method is long and correct, no need to include it again)
             self.window.browse_button.clicked.connect(self.select_files)
             self.window.start_processing_button.clicked.connect(self.start_or_abort_processing)
             self.window.save_token_button.clicked.connect(self.save_huggingface_token)
@@ -570,53 +499,44 @@ def run_app():
             self.window.findChild(QGroupBox, "Processing_options_frame").setEnabled(not is_processing)
             self.window.start_processing_button.setEnabled(True) 
             self.window.main_tab_widget.setTabEnabled(1, not is_processing)
-            
             if is_processing:
                 self.window.start_processing_button.setText("Abort")
                 self.window.start_processing_button.setIcon(self.window.icon_abort)
             else:
                 self.window.start_processing_button.setText("Start Processing")
                 self.window.start_processing_button.setIcon(self.window.icon_play)
-            
             self.is_processing = is_processing
         
         def get_processing_options(self):
             return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.diarization_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
 
         def load_initial_settings(self):
+            # ... (This method is long and correct, no need to include it again)
             self.window.correction_button.setEnabled(False)
             self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
             self.window.model_dropdown.setCurrentText("large (recommended)")
             if self.window.huggingface_token_frame: self.window.huggingface_token_frame.hide()
             token = self.config_manager.load_huggingface_token()
             if token: self.window.huggingface_token_entry.setText(token)
-            
             font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
             self.window.font_size_combo.addItems(font_sizes)
             self.window.font_size_combo.setCurrentText("12")
-
             db = QFontDatabase()
             font_families = db.families()
             self.window.text_font_combo.addItems(font_families)
-            
             default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"
             self.window.text_font_combo.setCurrentText(default_font)
-
             if self.window.correction_play_pause_btn:
                 button = self.window.correction_play_pause_btn
                 font_metrics = QFontMetrics(button.font())
                 text_width = font_metrics.boundingRect("Pause ").width()
                 padding = 40 
                 button.setFixedWidth(text_width + padding)
-                
             logger.info("Initial settings loaded.")
             show_tips = self.config_manager.get_main_window_show_tips()
             self.window.show_tips_checkbox.setChecked(show_tips)
-            
-            # Apply the preference to both the main window and the correction logic
             self._apply_tips_state(show_tips)
             self.correction_logic.set_tips_enabled(show_tips)
-            
             logger.info(f"Loaded tips preference on startup: {show_tips}")
 
         def save_huggingface_token(self):
@@ -627,7 +547,6 @@ def run_app():
 
         @Slot()
         def select_files(self):
-            from PySide6.QtWidgets import QFileDialog
             if self.is_processing: return
             file_filter = ("All Media Files (*.wav *.mp3 *.aac *.flac *.m4a *.mp4 *.mov *.avi *.mkv);;Audio Files (*.wav *.mp3 *.aac *.flac *.m4a);;Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)")
             paths, _ = QFileDialog.getOpenFileNames(self.window, "Select Audio or Video Files", "", file_filter)
@@ -666,7 +585,6 @@ def run_app():
             
             options = self.get_processing_options()
             cache_dir = os.path.join(os.path.expanduser('~'), 'AutoVerse_Cache')
-            
             ffmpeg_path = _get_bundled_ffmpeg_path()
             if ffmpeg_path:
                 logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
@@ -709,6 +627,7 @@ def run_app():
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
 
         def handle_batch_results(self, final_payload):
+            # ... (This method is long and correct, no need to include it again)
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]
             summary = []
             successful_count = 0
@@ -718,13 +637,13 @@ def run_app():
                 result = results[0]
                 self.window.progress_bar.setValue(100)
                 if result.status == constants.STATUS_SUCCESS:
-                    output_text = "\n".join(result.data) if isinstance(result.data, list) else str(result.data)
+                    output_text = "\\n".join(result.data) if isinstance(result.data, list) else str(result.data)
                     self.window.output_text_area.setPlainText(output_text)
                     self.prompt_and_save_single_result(result)
                 else:
                     msg = result.message or "An unknown error occurred."
                     self.window.status_label.setText(f"Error: {msg[:100]}...")
-                    self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}")
+                    self.window.output_text_area.setPlainText(f"An error occurred:\\n{msg}")
                     QMessageBox.critical(self.window, "Processing Error", msg)
             else: 
                 for result in results:
@@ -735,7 +654,7 @@ def run_app():
                     else:
                         error_count += 1
                         summary.append(f"ERROR: '{file_name}' - {result.message}")
-                self.window.output_text_area.setPlainText("\n".join(summary))
+                self.window.output_text_area.setPlainText("\\n".join(summary))
                 final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."
                 self.window.status_label.setText(final_status_msg)
                 QMessageBox.information(self.window, "Batch Processing Complete", final_status_msg)
@@ -773,13 +692,11 @@ def run_app():
             if not self.last_single_file_result_path or not self.audio_file_paths:
                 QMessageBox.warning(self.window, "Error", "Cannot find the necessary file paths.")
                 return
-                
             audio_path = self.audio_file_paths[0]
             txt_path = self.last_single_file_result_path
             self.correction_logic.load_files_from_paths(audio_path=audio_path, txt_path=txt_path)
             self.window.main_tab_widget.setCurrentIndex(1)
 
-    # --- Start of main execution ---
     app = QApplication(sys.argv)
     main_app = MainApplication(app)
     sys.exit(app.exec())
@@ -789,3 +706,8 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     multiprocessing.set_start_method('spawn', force=True)
     run_app()
+
+with open('main_pyside.py', 'w', encoding='utf-8') as f:
+    f.write(code)
+
+print("The file main_pyside.py has been updated with the fix.")
