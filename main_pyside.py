@@ -335,72 +335,85 @@ def run_app():
                         script_path = f.name
                         log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
                         
-                        # THE CORRECTED, ROBUST POWERSHELL SCRIPT
+                        # Simplified Windows update script without admin elevation
                         script_content = (
-                            f'Start-Transcript -Path "{log_file_path}" -Append -Force\\n\\n'
-                            'Write-Host "--- AutoVerse Updater Script Initializing ---\\n"\\n'
-                            # Dynamically find the script's own path and directory
-                            '$scriptPath = $MyInvocation.MyCommand.Path\\n'
-                            '$scriptDir = Split-Path -Parent -Path $scriptPath\\n'
-                            'Write-Host "Script Directory determined as: $scriptDir"\\n'
-                            # Check for admin privileges.
-                            'if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {\\n'
-                            '    Write-Host "Not running as Admin. Attempting to elevate..."\\n'
-                            '    $arguments = "-NoProfile -ExecutionPolicy Bypass -File \`"$scriptPath\`""\\n'
-                            '    try {\\n'
-                            # Use the dynamically found $scriptDir as the working directory for the new process.
-                            '        Start-Process powershell -Verb RunAs -ArgumentList $arguments -WorkingDirectory $scriptDir -ErrorAction Stop\\n'
-                            '        Write-Host "Elevated process launched successfully."\\n'
-                            '    } catch {\\n'
-                            '        Write-Host "ERROR: Failed to elevate process: $($_.Exception.Message)"\\n'
-                            '        Read-Host "Press Enter to exit."\\n'
-                            '    }\\n'
-                            '    Stop-Transcript\\n'
-                            '    exit\\n'
-                            '}\\n\\n'
+                            f'Start-Transcript -Path "{log_file_path}" -Append -Force\n'
+                            'Write-Host "--- AutoVerse Updater Script Starting ---"\n'
+                            f'$installDir = "{install_dir}"\n'
+                            f'$zipPath = "{zip_path}"\n'
+                            f'$relaunchPath = "{relaunch_path}"\n\n'
                             
-                            # This part of the script will only run if it has admin privileges.
-                            'Write-Host "--- Running as Administrator ---" -ForegroundColor Green\\n'
-                            'Write-Host "The application will now be closed to perform the update."\\n\\n'
-                            f'$installDir = "{install_dir}"\\n'
-                            f'$zipPath = "{zip_path}"\\n'
-                            f'$relaunchPath = "{relaunch_path}"\\n\\n'
+                            'Write-Host "Waiting for AutoVerse to close..."\n'
+                            'Start-Sleep -Seconds 3\n\n'
                             
-                            'try {\\n'
-                            # FIX 1: Kill the process before trying to delete anything.
-                            '    Write-Host "Step 1: Terminating any running AutoVerse process..."\\n'
-                            '    Get-Process -Name "AutoVerse" -ErrorAction SilentlyContinue | Stop-Process -Force\\n'
-                            '    Start-Sleep -Seconds 2 # Give the OS time to release file handles.\\n\\n'
-                                
-                            '    Write-Host "Step 2: Clearing old application files from: $installDir"\\n'
-                            # Delete the contents of the directory, which is more robust
-                            '    if (Test-Path $installDir) { Remove-Item -Recurse -Force -Path "$installDir\\*" -ErrorAction Stop }\\n'
-                            '    else { New-Item -ItemType Directory -Path $installDir -Force -ErrorAction Stop }\\n\\n'
+                            'try {\n'
+                            '    Write-Host "Step 1: Terminating any remaining AutoVerse processes..."\n'
+                            '    Get-Process -Name "AutoVerse" -ErrorAction SilentlyContinue | Stop-Process -Force\n'
+                            '    Start-Sleep -Seconds 2\n\n'
                             
-                            '    Write-Host "Step 3: Extracting new version to $installDir"\\n'
-                            '    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force -ErrorAction Stop\\n\\n'
+                            '    Write-Host "Step 2: Creating backup of current installation..."\n'
+                            '    $backupDir = "$installDir" + "_backup_" + (Get-Date -Format "yyyyMMdd_HHmmss")\n'
+                            '    if (Test-Path $installDir) {\n'
+                            '        Copy-Item -Path $installDir -Destination $backupDir -Recurse -Force\n'
+                            '        Write-Host "Backup created at: $backupDir"\n'
+                            '    }\n\n'
                             
-                            '    Write-Host "Step 4: Relaunching AutoVerse..."\\n'
-                            '    if (Test-Path $relaunchPath) {\\n'
-                            '        Start-Process -FilePath $relaunchPath\\n'
-                            '        Write-Host "Relaunch successful."\\n'
-                            '    } else {\\n'
-                            '        Write-Error "Relaunch failed. Executable not found at: $relaunchPath"\\n'
-                            '    }\\n'
-                            '} catch {\\n'
-                            '    Write-Host "--- FATAL ERROR DURING UPDATE ---" -ForegroundColor Red\\n'
-                            '    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Yellow\\n'
-                            '    Write-Host "Please close this window and try updating manually from the GitHub page." -ForegroundColor Cyan\\n'
-                            '    Read-Host "Press Enter to exit."\\n'
-                            '} finally {\\n'
-                            '    Write-Host "Update script finished." -ForegroundColor Gray\\n'
-                            '    Stop-Transcript\\n'
-                            '}\\n'
+                            '    Write-Host "Step 3: Extracting new version..."\n'
+                            '    $tempExtractDir = "$env:TEMP\\AutoVerse_Update_" + (Get-Date -Format "yyyyMMdd_HHmmss")\n'
+                            '    Expand-Archive -Path $zipPath -DestinationPath $tempExtractDir -Force\n\n'
+                            
+                            '    Write-Host "Step 4: Finding extracted files..."\n'
+                            '    $extractedFiles = Get-ChildItem -Path $tempExtractDir -Recurse -File\n'
+                            '    if ($extractedFiles.Count -eq 0) {\n'
+                            '        throw "No files found in extracted archive"\n'
+                            '    }\n\n'
+                            
+                            '    Write-Host "Step 5: Updating application files..."\n'
+                            '    foreach ($file in $extractedFiles) {\n'
+                            '        $relativePath = $file.FullName.Substring($tempExtractDir.Length + 1)\n'
+                            '        $destPath = Join-Path $installDir $relativePath\n'
+                            '        $destDir = Split-Path $destPath -Parent\n'
+                            '        if (!(Test-Path $destDir)) {\n'
+                            '            New-Item -ItemType Directory -Path $destDir -Force | Out-Null\n'
+                            '        }\n'
+                            '        Copy-Item -Path $file.FullName -Destination $destPath -Force\n'
+                            '    }\n\n'
+                            
+                            '    Write-Host "Step 6: Cleaning up temporary files..."\n'
+                            '    Remove-Item -Path $tempExtractDir -Recurse -Force\n'
+                            '    Remove-Item -Path $zipPath -Force\n\n'
+                            
+                            '    Write-Host "Step 7: Relaunching AutoVerse..."\n'
+                            '    if (Test-Path $relaunchPath) {\n'
+                            '        Start-Process -FilePath $relaunchPath\n'
+                            '        Write-Host "Update completed successfully!"\n'
+                            '    } else {\n'
+                            '        Write-Error "Relaunch failed. Executable not found at: $relaunchPath"\n'
+                            '        Write-Host "You can manually start AutoVerse from: $installDir"\n'
+                            '    }\n'
+                            '} catch {\n'
+                            '    Write-Host "--- UPDATE ERROR ---" -ForegroundColor Red\n'
+                            '    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Yellow\n'
+                            '    Write-Host "Attempting to restore from backup..." -ForegroundColor Cyan\n'
+                            '    if (Test-Path $backupDir) {\n'
+                            '        Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue\n'
+                            '        Move-Item -Path $backupDir -Destination $installDir -Force\n'
+                            '        Write-Host "Backup restored. Please try updating manually."\n'
+                            '    }\n'
+                            '    Write-Host "Press Enter to exit..."\n'
+                            '    Read-Host\n'
+                            '} finally {\n'
+                            '    Write-Host "Cleaning up..."\n'
+                            '    Remove-Item -Path $tempExtractDir -Recurse -Force -ErrorAction SilentlyContinue\n'
+                            '    Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
+                            '    Stop-Transcript\n'
+                            '    Start-Sleep -Seconds 2\n'
+                            '}\n'
                         )
                         f.write(script_content)
                     
-                    # Launch the script in a new console window
-                    command_list = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-File", script_path]
+                    # Launch the script in a new console window that stays open
+                    command_list = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-WindowStyle", "Normal", "-File", script_path]
                     subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
                 # This logging and quit call will happen for BOTH macOS and Windows
