@@ -272,60 +272,169 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # macOS logic remains unchanged
+                    # macOS updater - improved version following Windows pattern
                     final_app_path = "/Applications/AutoVerse.app"
                     old_app_path = get_true_application_path()
+                    log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
+                    
                     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
                         script_path = f.name
-                        script_content = (
-                            "#!/bin/bash\\n\\n"
-                            'echo "--- AutoVerse Updater ---\\n"\\n'
-                            "sleep 3\\n"
-                            f'ZIP_PATH="{zip_path}"\\n'
-                            f'FINAL_APP_PATH="{final_app_path}"\\n'
-                            f'TEMP_DIR=$(mktemp -d)\\n\\n'
-                            'echo "Unzipping downloaded archive..."\\n'
-                            'unzip -o "$ZIP_PATH" -d "$TEMP_DIR" &>/dev/null\\n\\n'
-                            'echo "Searching for application bundle..."\\n'
-                            'SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n\\n'
-                            'if [ -z "$SOURCE_APP_PATH" ]; then\\n'
-                            '    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)\\n'
-                            '    if [ -n "$NESTED_ZIP" ]; then\\n'
-                            '       echo "Found and extracting nested zip..."\\n'
-                            '       unzip -o "$NESTED_ZIP" -d "$TEMP_DIR" &>/dev/null\\n'
-                            '       SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -print -quit)\\n'
-                            '    fi\\n'
-                            'fi\\n\\n'
-                            'if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then\\n'
-                            '    echo "ERROR: Could not find a valid .app bundle in the archive."\\n'
-                            '    sleep 10\\n'
-                            '    exit 1\\n'
-                            'fi\\n\\n'
-                            'echo "Found bundle at: $SOURCE_APP_PATH"\\n'
-                            'if [ -d "$FINAL_APP_PATH" ]; then\\n'
-                            '    rm -rf "$FINAL_APP_PATH"\\n'
-                            'fi\\n\\n'
-                            'echo "Installing new version to /Applications..."\\n'
-                            'mv "$SOURCE_APP_PATH" "$FINAL_APP_PATH"\\n\\n'
-                            f'OLD_APP_PATH="{old_app_path or ""}"\\n\\n'
-                            'echo "Cleaning up the original application location..."\\n'
-                            'if [ -n "$OLD_APP_PATH" ] && [ -d "$OLD_APP_PATH" ] && [ "$OLD_APP_PATH" != "$FINAL_APP_PATH" ]; then\\n'
-                            '    rm -rf "$OLD_APP_PATH"\\n'
-                            '    echo "Successfully removed old version from $OLD_APP_PATH"\\n'
-                            'else\\n'
-                            '    echo "No cleanup of original location needed (already in /Applications or not found)."\\n'
-                            'fi\\n\\n'
-                            'echo "Relaunching AutoVerse..."\\n'
-                            'open "$FINAL_APP_PATH"\\n\\n'
-                            'echo "Cleaning up temporary files..."\\n'
-                            'rm -rf "$TEMP_DIR"\\n'
-                            'rm "$ZIP_PATH"\\n'
-                            'rm -- "$0"\\n'
-                        )
+                        script_content = f'''#!/bin/bash
+
+# AutoVerse macOS Updater Script
+# Log file: {log_file_path}
+
+exec > >(tee -a "{log_file_path}") 2>&1
+
+echo "=== AutoVerse macOS Updater Started ==="
+echo "Date: $(date)"
+echo "Zip Path: {zip_path}"
+echo "Final App Path: {final_app_path}"
+echo "Old App Path: {old_app_path or 'None'}"
+echo ""
+
+# Wait for main app to close
+echo "Step 1: Waiting for AutoVerse to close..."
+sleep 3
+
+# Terminate any remaining processes
+echo "Step 2: Terminating any remaining AutoVerse processes..."
+pkill -f "AutoVerse" 2>/dev/null || true
+sleep 2
+
+# Create backup
+echo "Step 3: Creating backup of current installation..."
+BACKUP_DIR="{final_app_path}_backup_$(date +%Y%m%d_%H%M%S)"
+if [ -d "{final_app_path}" ]; then
+    cp -R "{final_app_path}" "$BACKUP_DIR"
+    echo "Backup created at: $BACKUP_DIR"
+else
+    echo "No existing installation found to backup"
+fi
+
+# Extract update
+echo "Step 4: Extracting new version..."
+TEMP_DIR=$(mktemp -d)
+echo "Temporary directory: $TEMP_DIR"
+
+if ! unzip -q "{zip_path}" -d "$TEMP_DIR"; then
+    echo "ERROR: Failed to extract zip file"
+    echo "Cleaning up..."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Find the .app bundle
+echo "Step 5: Searching for application bundle..."
+SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -type d -print -quit)
+
+# Check for nested zip if no .app found
+if [ -z "$SOURCE_APP_PATH" ]; then
+    echo "No .app found, checking for nested zip..."
+    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)
+    if [ -n "$NESTED_ZIP" ]; then
+        echo "Found nested zip: $NESTED_ZIP"
+        NESTED_TEMP=$(mktemp -d)
+        if unzip -q "$NESTED_ZIP" -d "$NESTED_TEMP"; then
+            SOURCE_APP_PATH=$(find "$NESTED_TEMP" -name "*.app" -type d -print -quit)
+            if [ -n "$SOURCE_APP_PATH" ]; then
+                # Move the .app to the main temp directory
+                mv "$SOURCE_APP_PATH" "$TEMP_DIR/"
+                SOURCE_APP_PATH="$TEMP_DIR/$(basename "$SOURCE_APP_PATH")"
+            fi
+        fi
+        rm -rf "$NESTED_TEMP"
+    fi
+fi
+
+if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then
+    echo "ERROR: Could not find a valid .app bundle in the archive"
+    echo "Contents of temp directory:"
+    ls -la "$TEMP_DIR"
+    echo "Cleaning up..."
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+echo "Found application bundle at: $SOURCE_APP_PATH"
+
+# Install new version
+echo "Step 6: Installing new version..."
+if [ -d "{final_app_path}" ]; then
+    echo "Removing old version..."
+    rm -rf "{final_app_path}"
+fi
+
+echo "Moving new version to /Applications..."
+if mv "$SOURCE_APP_PATH" "{final_app_path}"; then
+    echo "Successfully installed new version"
+else
+    echo "ERROR: Failed to install new version"
+    echo "Attempting to restore backup..."
+    if [ -d "$BACKUP_DIR" ]; then
+        mv "$BACKUP_DIR" "{final_app_path}"
+        echo "Backup restored"
+    fi
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+# Clean up old installation if different location
+if [ -n "{old_app_path}" ] && [ -d "{old_app_path}" ] && [ "{old_app_path}" != "{final_app_path}" ]; then
+    echo "Step 7: Cleaning up old installation at {old_app_path}..."
+    rm -rf "{old_app_path}"
+    echo "Old installation removed"
+fi
+
+# Relaunch application
+echo "Step 8: Relaunching AutoVerse..."
+if [ -d "{final_app_path}" ]; then
+    open "{final_app_path}"
+    echo "AutoVerse relaunched successfully"
+else
+    echo "ERROR: Application not found after installation"
+    exit 1
+fi
+
+# Cleanup
+echo "Step 9: Cleaning up temporary files..."
+rm -rf "$TEMP_DIR"
+rm -f "{zip_path}"
+
+# Remove successful backup (keep only on error)
+if [ -d "$BACKUP_DIR" ]; then
+    rm -rf "$BACKUP_DIR"
+    echo "Backup removed (update successful)"
+fi
+
+echo ""
+echo "=== Update completed successfully! ==="
+echo "Date: $(date)"
+echo "Log saved to: {log_file_path}"
+echo ""
+echo "This window will close in 5 seconds..."
+sleep 5
+
+# Remove this script
+rm -- "$0"
+'''
                         f.write(script_content)
 
                     os.chmod(script_path, 0o755)
-                    subprocess.Popen(['open', '-a', 'Terminal', script_path])
+                    
+                    # Launch the script in Terminal with a visible window
+                    applescript = f'''
+                    tell application "Terminal"
+                        activate
+                        do script "'{script_path}'"
+                    end tell
+                    '''
+                    
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.scpt', encoding='utf-8') as f:
+                        applescript_path = f.name
+                        f.write(applescript)
+                    
+                    subprocess.Popen(['osascript', applescript_path])
                 
                 elif sys.platform == 'win32':
                     install_dir = os.path.dirname(sys.executable)
