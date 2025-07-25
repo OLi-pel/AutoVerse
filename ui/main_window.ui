@@ -117,18 +117,29 @@
                    <property name="title">
                     <string>&amp;Speaker detection</string>
                    </property>
-                   <layout class="QVBoxLayout" name="verticalLayout">
+                   <layout class="QVBoxLayout" name="verticalLayout_token">
                     <item>
-                     <widget class="QCheckBox" name="diarization_checkbutton">
-                      <property name="text">
-                       <string>Enable Speaker Diarization</string>
-                      </property>
-                     </widget>
+                     <layout class="QHBoxLayout" name="horizontalLayout_diarization">
+                      <item>
+                       <widget class="QCheckBox" name="identify_speakers_checkbutton">
+                        <property name="text">
+                         <string>Identify Different Speakers</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QPushButton" name="save_token_button">
+                        <property name="text">
+                         <string>Manage Token</string>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
                     </item>
                     <item>
                      <widget class="QCheckBox" name="auto_merge_checkbutton">
                       <property name="text">
-                       <string>Automatically Merge</string>
+                       <string>Auto-Merge</string>
                       </property>
                      </widget>
                     </item>
@@ -161,28 +172,11 @@
                  <item row="1" column="0" colspan="3">
                   <widget class="QGroupBox" name="huggingface_token_frame">
                    <property name="title">
-                    <string>&amp;Hugging Face Token</string>
+                    <string>Hugging Face Token</string>
                    </property>
                    <layout class="QHBoxLayout" name="horizontalLayout_3">
                     <item>
-                     <widget class="QLabel" name="label_2">
-                      <property name="text">
-                       <string>Copy/Paste Token here:</string>
-                      </property>
-                     </widget>
-                    </item>
-                    <item>
                      <widget class="QLineEdit" name="huggingface_token_entry"/>
-                    </item>
-                    <item>
-                     <widget class="QPushButton" name="save_token_button">
-                      <property name="text">
-                       <string>Save</string>
-                      </property>
-                      <property name="icon">
-                       <iconset theme="QIcon::ThemeIcon::DocumentSave"/>
-                      </property>
-                     </widget>
                     </item>
                    </layout>
                   </widget>

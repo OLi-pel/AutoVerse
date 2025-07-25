@@ -15,6 +15,9 @@ TOKEN_OPTION = 'hf_token'
 UI_PREFERENCES_SECTION = 'UIPreferences'
 MAIN_WINDOW_SHOW_TIPS_OPTION = 'main_window_show_tips'
 CORRECTION_WINDOW_SHOW_TIPS_OPTION = 'correction_window_show_tips'
+# --- [NEW CODE] ---
+STARTUP_SHOW_WELCOME_WIZARD_OPTION = 'show_welcome_wizard'
+# --- [END NEW CODE] ---
 
 
 class ConfigManager:
@@ -51,6 +54,9 @@ class ConfigManager:
         self._ensure_section_exists(UI_PREFERENCES_SECTION)
         self.config[UI_PREFERENCES_SECTION][MAIN_WINDOW_SHOW_TIPS_OPTION] = 'yes' # Tips enabled by default
         self.config[UI_PREFERENCES_SECTION][CORRECTION_WINDOW_SHOW_TIPS_OPTION] = 'yes' # Tips enabled by default
+        # --- [NEW CODE] ---
+        self.config[UI_PREFERENCES_SECTION][STARTUP_SHOW_WELCOME_WIZARD_OPTION] = 'yes' # Default to showing the wizard
+        # --- [END NEW CODE] ---
 
     def _create_default_config_and_write(self):
         """Creates a default configuration and writes it to the specified path."""
@@ -112,3 +118,13 @@ class ConfigManager:
 
     def get_correction_window_show_tips(self) -> bool:
         return self.get(UI_PREFERENCES_SECTION, CORRECTION_WINDOW_SHOW_TIPS_OPTION, 'yes').lower() == 'yes'
+
+    # --- [NEW CODE] ---
+    def set_show_welcome_wizard(self, show_wizard: bool):
+        """Saves the user's preference for showing the welcome wizard."""
+        self.set(UI_PREFERENCES_SECTION, STARTUP_SHOW_WELCOME_WIZARD_OPTION, 'yes' if show_wizard else 'no')
+
+    def get_show_welcome_wizard(self) -> bool:
+        """Checks if the welcome wizard should be shown. Defaults to True."""
+        return self.get(UI_PREFERENCES_SECTION, STARTUP_SHOW_WELCOME_WIZARD_OPTION, 'yes').lower() == 'yes'
+    # --- [END NEW CODE] ---

@@ -12,6 +12,7 @@ import requests
 import tempfile
 import subprocess
 import shutil
+import webbrowser
 from packaging.version import Version
 
 from PySide6.QtWidgets import QApplication
@@ -43,8 +44,10 @@ def run_app():
     Contains all application logic and imports.
     """
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
-    from PySide6.QtWidgets import QFileDialog, QMessageBox, QLineEdit, QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, QTextEdit, QWidget, QTabWidget, QGroupBox
-    from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase
+    from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
+                                 QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, 
+                                 QTextEdit, QWidget, QTabWidget, QGroupBox)
+    from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase, QPixmap
     from PySide6.QtUiTools import QUiLoader
 
     from utils.logging_setup import setup_logging
@@ -59,6 +62,132 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
+    class HuggingFaceTokenDialog(QDialog):
+        def __init__(self, current_token, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Hugging Face Token Setup")
+            self.token = current_token
+            self.setMinimumWidth(550)
+            
+            main_layout = QVBoxLayout(self)
+            
+            info_group = QGroupBox("Why is this needed?")
+            info_layout = QVBoxLayout()
+            info_label = QLabel(
+                "To identify different speakers, AutoVerse needs to download free AI models "
+                "from a service called Hugging Face.\n\n"
+                "A 'read-only' access token proves you have accepted their terms. "
+                "<b>This is a one-time setup.</b>"
+            )
+            info_label.setWordWrap(True)
+            info_layout.addWidget(info_label)
+            info_group.setLayout(info_layout)
+            main_layout.addWidget(info_group)
+            
+            steps_group = QGroupBox("Setup Steps")
+            steps_layout = QGridLayout()
+            steps_layout.setSpacing(10)
+            
+            steps_layout.addWidget(QLabel("<b>1. Create Account</b>"), 0, 0)
+            steps_layout.addWidget(QLabel("Log in or create a free Hugging Face account."), 0, 1)
+            btn_step1 = QPushButton("Open Hugging Face")
+            btn_step1.clicked.connect(lambda: webbrowser.open("https://huggingface.co/join"))
+            steps_layout.addWidget(btn_step1, 0, 2)
+
+            steps_layout.addWidget(QLabel("<b>2. Accept Terms</b>"), 1, 0)
+            steps_layout.addWidget(QLabel("Visit BOTH links and click 'Agree and access repository'."), 1, 1)
+            btn_layout_s2 = QHBoxLayout()
+            btn_s2a = QPushButton("Model 1")
+            btn_s2b = QPushButton("Model 2")
+            btn_s2a.clicked.connect(lambda: webbrowser.open("https://huggingface.co/pyannote/segmentation-3.0"))
+            btn_s2b.clicked.connect(lambda: webbrowser.open("https://huggingface.co/pyannote/speaker-diarization-3.1"))
+            btn_layout_s2.addWidget(btn_s2a)
+            btn_layout_s2.addWidget(btn_s2b)
+            steps_layout.addLayout(btn_layout_s2, 1, 2)
+            
+            steps_layout.addWidget(QLabel("<b>3. Generate Token</b>"), 2, 0)
+            steps_layout.addWidget(QLabel("Create a new token with the <b>'read'</b> role."), 2, 1)
+            btn_step3 = QPushButton("Get Your Token")
+            btn_step3.clicked.connect(lambda: webbrowser.open("https://huggingface.co/settings/tokens"))
+            steps_layout.addWidget(btn_step3, 2, 2)
+
+            steps_layout.addWidget(QLabel("<b>4. Paste Token</b>"), 3, 0)
+            self.token_entry = QLineEdit()
+            self.token_entry.setPlaceholderText("Paste your token here (it starts with 'hf_...')")
+            self.token_entry.setText(current_token) 
+            steps_layout.addWidget(self.token_entry, 3, 1, 1, 2)
+            
+            steps_group.setLayout(steps_layout)
+            main_layout.addWidget(steps_group)
+
+            button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            self.save_button = button_box.button(QDialogButtonBox.Save)
+            self.save_button.setText("Save and Continue")
+            
+            self.token_entry.textChanged.connect(self.validate_token)
+            button_box.accepted.connect(self.on_accept)
+            button_box.rejected.connect(self.reject)
+            main_layout.addWidget(button_box)
+            self.validate_token()
+
+        def validate_token(self):
+            text = self.token_entry.text()
+            self.save_button.setEnabled(text.strip().startswith("hf_"))
+
+        def on_accept(self):
+            self.token = self.token_entry.text().strip()
+            self.accept()
+
+    class WelcomeDialog(QDialog):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Welcome to AutoVerse!")
+            self.choice = None
+            self.setModal(True)
+            self.setFixedSize(450, 270)
+            
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            icon_dir = os.path.join(base_dir, 'assets', 'icons')
+
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setSpacing(15)
+
+            welcome_label = QLabel("What would you like to do?")
+            welcome_label.setAlignment(Qt.AlignCenter)
+            welcome_label.setStyleSheet("QLabel { font-size: 20px; margin-bottom: 10px; }")
+            layout.addWidget(welcome_label)
+
+            self.transcribe_button = QPushButton(" Transcribe a New Audio/Video File")
+            fallback_transcribe_icon = QIcon(os.path.join(icon_dir, 'folder-open.png'))
+            self.transcribe_button.setIcon(QIcon.fromTheme("document-new", fallback_transcribe_icon))
+            self.transcribe_button.setMinimumHeight(60)
+            self.transcribe_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
+            self.transcribe_button.clicked.connect(self.select_transcribe)
+            layout.addWidget(self.transcribe_button)
+
+            self.edit_button = QPushButton(" Edit an Existing Transcript")
+            fallback_edit_icon = QIcon(os.path.join(icon_dir, 'pencil.png'))
+            self.edit_button.setIcon(QIcon.fromTheme("document-edit", fallback_edit_icon))
+            self.edit_button.setMinimumHeight(60)
+            self.edit_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
+            self.edit_button.clicked.connect(self.select_edit)
+            layout.addWidget(self.edit_button)
+
+            layout.addStretch(1)
+
+            self.dont_show_again_checkbox = QCheckBox("Don't show this again")
+            self.dont_show_again_checkbox.setStyleSheet("QCheckBox { font-size: 12px; }")
+            layout.addWidget(self.dont_show_again_checkbox, 0, Qt.AlignRight)
+
+        def select_transcribe(self):
+            self.choice = 'transcribe'
+            self.accept()
+
+        def select_edit(self):
+            self.choice = 'edit'
+            self.accept()
+    
     def get_true_application_path():
         if not (getattr(sys, 'frozen', False) and sys.platform == 'darwin'):
             return None
@@ -80,7 +209,7 @@ def run_app():
         return None
 
     class UpdateChecker(QThread):
-        update_available = Signal(str, str, str) # version, release_notes, download_url
+        update_available = Signal(str, str, str)
         def __init__(self, owner, repo):
             super().__init__()
             self.owner = owner
@@ -185,7 +314,7 @@ def run_app():
             self._promote_widgets()
             self.correction_logic = CorrectionViewLogic(self.window)
             self.tip_widgets = {
-                self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.diarization_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
+                self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
             self._setup_fonts()
             self._setup_icons()
@@ -207,7 +336,21 @@ def run_app():
             else:
                 logger.info("Application not frozen. Skipping update check.")
             
-            self.window.show()
+            if self.config_manager.get_show_welcome_wizard():
+                welcome_dialog = WelcomeDialog(self.window)
+                if welcome_dialog.exec() == QDialog.Accepted:
+                    self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
+                    if welcome_dialog.choice == 'transcribe':
+                        self.window.show()
+                        self.select_files() 
+                    elif welcome_dialog.choice == 'edit':
+                        self.window.main_tab_widget.setCurrentIndex(1)
+                        self.window.show()
+                else:
+                    self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
+                    self.window.show()
+            else:
+                self.window.show()
 
         def _apply_tips_state(self, is_enabled):
             self.window.statusBar().setVisible(is_enabled)
@@ -272,7 +415,7 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # macOS updater - improved version following Windows pattern
+                    # ... (macOS updater script unchanged)
                     final_app_path = "/Applications/AutoVerse.app"
                     old_app_path = get_true_application_path()
                     log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
@@ -422,7 +565,6 @@ rm -- "$0"
 
                     os.chmod(script_path, 0o755)
                     
-                    # Launch the script in Terminal with a visible window
                     applescript = f'''
                     tell application "Terminal"
                         activate
@@ -437,6 +579,7 @@ rm -- "$0"
                     subprocess.Popen(['osascript', applescript_path])
                 
                 elif sys.platform == 'win32':
+                    # ... (windows updater script unchanged)
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
@@ -444,7 +587,6 @@ rm -- "$0"
                         script_path = f.name
                         log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
                         
-                        # Simplified Windows update script without admin elevation
                         script_content = (
                             f'Start-Transcript -Path "{log_file_path}" -Append -Force\n'
                             'Write-Host "--- AutoVerse Updater Script Starting ---"\n'
@@ -521,11 +663,9 @@ rm -- "$0"
                         )
                         f.write(script_content)
                     
-                    # Launch the script in a new console window that stays open
                     command_list = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-WindowStyle", "Normal", "-File", script_path]
                     subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
-                # This logging and quit call will happen for BOTH macOS and Windows
                 logger.info(f"Update script written to '{script_path}'. Launching execution.")
                 self.app.quit()
 
@@ -534,11 +674,12 @@ rm -- "$0"
                 QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
-            # ... (This method is long and correct, no need to include it again)
+            # ...
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
             self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
             self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
-            self.window.diarization_checkbutton = self.window.findChild(QCheckBox, "diarization_checkbutton")
+            # --- [MODIFIED] Using the new name from the .ui file ---
+            self.window.identify_speakers_checkbutton = self.window.findChild(QCheckBox, "identify_speakers_checkbutton")
             self.window.auto_merge_checkbutton = self.window.findChild(QCheckBox, "auto_merge_checkbutton")
             self.window.timestamps_checkbutton_2 = self.window.findChild(QCheckBox, "timestamps_checkbutton_2")
             self.window.end_times_checkbutton = self.window.findChild(QCheckBox, "end_times_checkbutton")
@@ -551,6 +692,7 @@ rm -- "$0"
             self.window.output_text_area = self.window.findChild(QTextEdit, "output_text_area")
             self.window.correction_button = self.window.findChild(QPushButton, "correction_button")
             self.window.main_tab_widget = self.window.findChild(QTabWidget, "tabWidget")
+            self.window.show_tips_checkbox = self.window.findChild(QCheckBox, "show_tips_checkbox")
             self.window.correction_transcription_entry = self.window.findChild(QLineEdit, "correction_transcription_entry")
             self.window.correction_browse_transcription_btn = self.window.findChild(QPushButton, "correction_browse_transcription_btn")
             self.window.correction_audio_entry = self.window.findChild(QLineEdit, "correction_audio_entry")
@@ -582,6 +724,7 @@ rm -- "$0"
             self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
 
         def _setup_icons(self):
+            # ... (unchanged)
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
             icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png"}
@@ -602,20 +745,47 @@ rm -- "$0"
             self.window.correction_play_pause_btn.setIcon(self.window.icon_play)
 
         def connect_signals(self):
-            # ... (This method is long and correct, no need to include it again)
             self.window.browse_button.clicked.connect(self.select_files)
             self.window.start_processing_button.clicked.connect(self.start_or_abort_processing)
-            self.window.save_token_button.clicked.connect(self.save_huggingface_token)
-            self.window.diarization_checkbutton.stateChanged.connect(self.toggle_advanced_options)
+            self.window.save_token_button.clicked.connect(self.show_hf_token_dialog)
+            
+            # --- [MODIFIED] Using the new checkbox name ---
+            self.window.identify_speakers_checkbutton.stateChanged.connect(self.toggle_speaker_options)
+            
             self.window.correction_button.clicked.connect(self.go_to_correction)
             self.window.show_tips_checkbox.stateChanged.connect(self.on_tips_toggled)
 
-        def toggle_advanced_options(self, state):
-            is_checked = (state == 2)
-            if self.window.huggingface_token_frame: self.window.huggingface_token_frame.setVisible(is_checked)
-            if self.window.auto_merge_checkbutton: self.window.auto_merge_checkbutton.setEnabled(is_checked)
-            if not is_checked: self.window.auto_merge_checkbutton.setChecked(False)
+        # --- [MODIFIED] Renamed and updated logic ---
+        def toggle_speaker_options(self, state):
+            is_checked = (state == Qt.CheckState.Checked.value)
+            
+            self.window.auto_merge_checkbutton.setEnabled(is_checked)
+            if not is_checked:
+                self.window.auto_merge_checkbutton.setChecked(False)
 
+            if is_checked:
+                self.window.save_token_button.show()
+                # Check for token and show dialog only if it's missing
+                if not self.config_manager.load_huggingface_token():
+                    self.show_hf_token_dialog(is_mandatory=True)
+            else:
+                self.window.save_token_button.hide()
+        
+        @Slot()
+        def show_hf_token_dialog(self, is_mandatory=False):
+            current_token = self.config_manager.load_huggingface_token()
+            dialog = HuggingFaceTokenDialog(current_token, self.window)
+
+            if dialog.exec() == QDialog.Accepted:
+                if dialog.token != current_token:
+                    self.window.huggingface_token_entry.setText(dialog.token)
+                    self.save_huggingface_token()
+                    logger.info("Hugging Face token updated via dialog.")
+            elif is_mandatory:
+                # User cancelled the mandatory setup, so uncheck the box.
+                self.window.identify_speakers_checkbutton.setChecked(False)
+                logger.warning("Mandatory Hugging Face token setup was cancelled.")
+        
         def set_ui_for_processing(self, is_processing):
             self.window.findChild(QGroupBox, "Audio_file_frame").setEnabled(not is_processing)
             self.window.findChild(QGroupBox, "Processing_options_frame").setEnabled(not is_processing)
@@ -630,16 +800,26 @@ rm -- "$0"
             self.is_processing = is_processing
         
         def get_processing_options(self):
-            return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.diarization_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
+            return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.identify_speakers_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
 
         def load_initial_settings(self):
-            # ... (This method is long and correct, no need to include it again)
+            self.window.huggingface_token_frame.hide()
+
+            self.window.save_token_button.setText("Manage Token")
+            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            key_icon_path = os.path.join(base_dir, 'assets', 'icons', 'key.png')
+            if os.path.exists(key_icon_path):
+                 self.window.save_token_button.setIcon(QIcon(key_icon_path))
+            self.window.save_token_button.hide() # Initially hidden
+
             self.window.correction_button.setEnabled(False)
             self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
             self.window.model_dropdown.setCurrentText("large (recommended)")
-            if self.window.huggingface_token_frame: self.window.huggingface_token_frame.hide()
+            
             token = self.config_manager.load_huggingface_token()
-            if token: self.window.huggingface_token_entry.setText(token)
+            if token:
+                self.window.huggingface_token_entry.setText(token)
+
             font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
             self.window.font_size_combo.addItems(font_sizes)
             self.window.font_size_combo.setCurrentText("12")
@@ -665,7 +845,7 @@ rm -- "$0"
             token = self.window.huggingface_token_entry.text().strip()
             self.config_manager.save_huggingface_token(token)
             self.config_manager.set_use_auth_token(bool(token))
-            QMessageBox.information(self.window, "Token Saved", "Hugging Face token has been saved." if token else "Hugging Face token has been cleared.")
+            QMessageBox.information(self.window, "Token Saved", "Hugging Face token has been saved successfully.")
 
         @Slot()
         def select_files(self):
@@ -749,7 +929,6 @@ rm -- "$0"
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
 
         def handle_batch_results(self, final_payload):
-            # ... (This method is long and correct, no need to include it again)
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]
             summary = []
             successful_count = 0
@@ -759,13 +938,13 @@ rm -- "$0"
                 result = results[0]
                 self.window.progress_bar.setValue(100)
                 if result.status == constants.STATUS_SUCCESS:
-                    output_text = "\\n".join(result.data) if isinstance(result.data, list) else str(result.data)
+                    output_text = "\n".join(result.data) if isinstance(result.data, list) else str(result.data)
                     self.window.output_text_area.setPlainText(output_text)
                     self.prompt_and_save_single_result(result)
                 else:
                     msg = result.message or "An unknown error occurred."
                     self.window.status_label.setText(f"Error: {msg[:100]}...")
-                    self.window.output_text_area.setPlainText(f"An error occurred:\\n{msg}")
+                    self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}")
                     QMessageBox.critical(self.window, "Processing Error", msg)
             else: 
                 for result in results:
@@ -776,7 +955,7 @@ rm -- "$0"
                     else:
                         error_count += 1
                         summary.append(f"ERROR: '{file_name}' - {result.message}")
-                self.window.output_text_area.setPlainText("\\n".join(summary))
+                self.window.output_text_area.setPlainText("\n".join(summary))
                 final_status_msg = f"Batch finished. {successful_count} successful, {error_count} failed."
                 self.window.status_label.setText(final_status_msg)
                 QMessageBox.information(self.window, "Batch Processing Complete", final_status_msg)
@@ -828,8 +1007,3 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     multiprocessing.set_start_method('spawn', force=True)
     run_app()
-
-with open('main_pyside.py', 'w', encoding='utf-8') as f:
-    f.write(code)
-
-print("The file main_pyside.py has been updated with the fix.")
