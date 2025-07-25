@@ -4,7 +4,7 @@ import sys
 import logging
 
 # --- Application Version ---
-APP_VERSION = "1.0.0" 
+APP_VERSION = "1.0.1" 
 
 # --- User-specific Application Data Directory ---
 APP_NAME = "AutoVerse"
@@ -26,7 +26,9 @@ APP_USER_DATA_DIR = get_app_data_dir()
 # --- Message types for queue ---
 MSG_TYPE_STATUS = "status"
 MSG_TYPE_PROGRESS = "progress"
-MSG_TYPE_FINISHED = "finished" # Retained for single-file backward compatibility if needed
+MSG_TYPE_REALTIME_PROGRESS = "realtime_progress"
+MSG_TYPE_SAVE_PERFORMANCE_FACTOR = "save_performance_factor" # --- PHASE 3: NEW MESSAGE TYPE ---
+MSG_TYPE_FINISHED = "finished" 
 MSG_TYPE_BATCH_FILE_START = "batch_file_start"
 MSG_TYPE_BATCH_COMPLETED = "batch_completed"
 

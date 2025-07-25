@@ -43,6 +43,7 @@ def run_app():
     """
     Contains all application logic and imports.
     """
+    import time
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
                                  QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, 
@@ -323,6 +324,11 @@ def run_app():
             self.process = None
             self.queue = None
             self.last_single_file_result_path = None
+        
+            # --- PHASE 3: ADD ETR TRACKING VARIABLES ---
+            self.current_step_start_time = None
+            self.original_status_text = ""
+
             self.timer = QTimer()
             self.timer.timeout.connect(self.check_queue)
             self.connect_signals()
@@ -873,6 +879,20 @@ rm -- "$0"
             if not self.audio_file_paths:
                 QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
                 return
+            
+            # --- PHASE 3+: Add the one-time informational pop-up ---
+            if not self.config_manager.get_has_shown_performance_notice():
+                title = "First-Time Processing Notice"
+                message = (
+                    "The first time you run a model, AutoVerse may need to download a few gigabytes of AI model files from the internet.\n\n"
+                    "---\n\n"
+                    "<b>Smart Time Estimates</b>\n\n"
+                    "For future runs, AutoVerse will provide an Estimated Time Remaining (ETR). This estimate will automatically learn from your computer's performance and become more accurate over time.\n\n"
+                    "This is a one-time message."
+                )
+                QMessageBox.information(self.window, title, message)
+                self.config_manager.set_has_shown_performance_notice(True)
+            # --- END of new logic ---
 
             destination_folder = None
             if len(self.audio_file_paths) > 1:
@@ -900,19 +920,48 @@ rm -- "$0"
             self.process.start()
             self.timer.start(100)
 
+        # --- Corrected in this step ---
         def check_queue(self):
             try:
                 msg_type, data = self.queue.get_nowait()
+
                 if msg_type == constants.MSG_TYPE_PROGRESS:
                     self.window.progress_bar.setValue(data)
+
                 elif msg_type == constants.MSG_TYPE_STATUS:
                     self.window.status_label.setText(data)
+                    self.window.progress_bar.setValue(0)
+                    # A new step is starting, so record its start time and original status text
+                    self.current_step_start_time = time.time()
+                    self.original_status_text = data
+                
+                elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS:
+                    percentage = data
+                    self.window.progress_bar.setValue(percentage)
+                    if self.current_step_start_time is not None and percentage > 2:
+                        elapsed_time = time.time() - self.current_step_start_time
+                        # Predict total time based on current progress
+                        total_predicted_time = (elapsed_time / percentage) * 100
+                        remaining_time = total_predicted_time - elapsed_time
+                        
+                        if remaining_time > 0:
+                            etr_string = self._format_etr(remaining_time)
+                            # Update the status label with the ETR
+                            self.window.status_label.setText(f"{self.original_status_text} (ETR: ~{etr_string})")
+
+                elif msg_type == constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR:
+                    model_key, new_factor = data
+                    logger.info(f"Received new performance factor for '{model_key}': {new_factor:.4f}. Saving.")
+                    self.config_manager.save_performance_factor(model_key, new_factor)
+                
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
                     file_info = data
                     status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
                     self.window.status_label.setText(status)
                     self.window.progress_bar.setValue(0)
+                
                 elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED:
+                    self.current_step_start_time = None
                     self.timer.stop()
                     if self.process:
                         self.process.join()
@@ -927,6 +976,16 @@ rm -- "$0"
                     if "aborted" not in self.window.status_label.text():
                         QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
+        
+        # --- NEW HELPER METHOD FOR ETR FORMATTING ---
+        def _format_etr(self, seconds: float) -> str:
+            """Formats seconds into a human-readable M:SS or S string."""
+            if seconds < 60:
+                return f"{int(seconds)}s"
+            else:
+                mins = int(seconds / 60)
+                secs = int(seconds % 60)
+                return f"{mins}m {secs:02d}s"
 
         def handle_batch_results(self, final_payload):
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]

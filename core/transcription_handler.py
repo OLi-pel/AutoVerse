@@ -2,28 +2,23 @@
 import logging
 import os
 import whisper
+from utils import constants
 
 logger = logging.getLogger(__name__)
 
-class TranscriptionHandler:
-    def __init__(self, model_name, device, progress_callback=None, cache_dir=None):
-        """
-        Initializes the TranscriptionHandler.
+# The Progress Hook class is no longer needed and has been removed.
 
-        Args:
-            model_name (str): The name of the Whisper model to load.
-            device (str): The device to run the model on ('cpu' or 'cuda').
-            progress_callback (function, optional): A callback for reporting progress.
-            cache_dir (str, optional): The root directory for caching models.
-        """
+class TranscriptionHandler:
+    def __init__(self, model_name, device, progress_callback=None, cache_dir=None, queue=None):
+        # The 'queue' is no longer needed here, but we leave it for potential future use to avoid breaking the AudioProcessor signature yet
         self.model_name = model_name
         self.device = device
         self.progress_callback = progress_callback
-        self.cache_dir = cache_dir  # Store the cache directory
+        self.cache_dir = cache_dir
         self.model = self._load_model()
 
     def _report_progress(self, message: str, percentage: int = None):
-        """Safely calls the progress callback if it exists."""
+        # This function is now only used for single, non-real-time messages.
         if self.progress_callback:
             try:
                 self.progress_callback(message, percentage)
@@ -31,55 +26,45 @@ class TranscriptionHandler:
                 logger.error(f"Error in TranscriptionHandler progress_callback: {e}", exc_info=True)
 
     def is_model_loaded(self) -> bool:
-        """Checks if the model has been loaded successfully."""
         return self.model is not None
 
     def _load_model(self):
-        """
-        Loads the Whisper model, using a specified cache directory if provided.
-        """
         logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') on device '{self.device}'...")
-        self._report_progress(f"Loading transcription model '{self.model_name}'...")
+        # Note: Real-time progress is now handled entirely by the TqdmLogStream capturing the download bar.
         
-        # --- MODIFIED CACHE LOGIC ---
-        # Determine the specific path for whisper models and ensure it exists.
         whisper_cache_path = None
         if self.cache_dir:
             try:
-                # The 'download_root' in whisper.load_model becomes the parent directory
-                # for the default '~/.cache/whisper' structure.
-                # So we pass the main app cache dir. Whisper will create a 'whisper' subfolder.
                 whisper_cache_path = self.cache_dir 
                 os.makedirs(whisper_cache_path, exist_ok=True)
                 logger.info(f"Using application-specific cache directory for Whisper: {whisper_cache_path}")
             except OSError as e:
-                logger.error(f"Could not create cache directory {whisper_cache_path}. Models will use default cache. Error: {e}")
-                whisper_cache_path = None # Fallback
+                logger.error(f"Could not create cache directory. Using default. Error: {e}")
+                whisper_cache_path = None
 
         try:
-            # Pass the explicit download_root to the load_model function.
-            # If whisper_cache_path is None, whisper will use its default.
-            # This ensures models are stored in AppData/Roaming/AutoVerse/whisper
             model = whisper.load_model(
                 self.model_name,
                 device=self.device,
                 download_root=whisper_cache_path
             )
-            
             logger.info(f"TranscriptionHandler: Whisper model '{self.model_name}' loaded successfully.")
-            self._report_progress(f"Transcription model '{self.model_name}' loaded.", 100)
             return model
         except Exception as e:
             logger.error(f"Error loading Whisper model: {e}", exc_info=True)
+            # Send a failure message if loading fails.
             self._report_progress(f"Error loading model: {e}", 0)
             raise
         
     def transcribe(self, audio_path: str):
-        """Transcribes the audio file."""
+        """
+        Transcribes the audio file. Forcing `verbose=None` to ensure the tqdm
+        progress bar is always shown for capturing by TqdmLogStream.
+        """
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
         try:
-            # The verbose parameter prints detailed progress to the console, which can be useful for debugging.
-            result = self.model.transcribe(audio_path, verbose=False)
+            # THIS IS THE CRITICAL FIX: verbose=None generates the progress bar. The hooks argument is removed.
+            result = self.model.transcribe(audio_path, verbose=None)
             logger.info("TranscriptionHandler: Transcription completed successfully.")
             return result
         except Exception as e:
