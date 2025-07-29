@@ -1,10 +1,12 @@
 # utils/config_manager.py
 import configparser
 import os
+from . import constants
 
 TOKEN_SECTION = 'HuggingFace'
 UI_PREFERENCES_SECTION = 'UIPreferences'
 PERFORMANCE_FACTORS_SECTION = 'PerformanceFactors'
+PROCESSING_OPTIONS_SECTION = 'ProcessingOptions'
 
 # --- (Other constants are unchanged) ---
 USE_AUTH_TOKEN_OPTION = 'use_auth_token'; TOKEN_OPTION = 'hf_token'
@@ -38,6 +40,13 @@ class ConfigManager:
             HAS_SHOWN_PERFORMANCE_NOTICE_OPTION: 'no' # Defaults to 'no'
         })
         self._ensure_section_exists(PERFORMANCE_FACTORS_SECTION)
+        self._ensure_section_exists(PROCESSING_OPTIONS_SECTION); self.config[PROCESSING_OPTIONS_SECTION].update({
+            constants.OPTION_MODEL: 'large (recommended)',
+            constants.OPTION_DIARIZE: 'no',
+            constants.OPTION_AUTO_MERGE: 'no',
+            constants.OPTION_TIMESTAMPS: 'yes',
+            constants.OPTION_END_TIMES: 'no'
+        })
 
     def _create_default_config_and_write(self): #...
         self._create_default_config_in_memory()
@@ -72,9 +81,26 @@ class ConfigManager:
         clamped_factor = max(0.5, min(new_avg_factor, 5.0))
         self.set(PERFORMANCE_FACTORS_SECTION, model_key, f"{clamped_factor:.4f}")
 
-    # --- NEW METHODS for the one-time performance notice ---
-    def get_has_shown_performance_notice(self) -> bool:
+    def get_has_shown_performance_notice(self) -> bool: #...
         return self.get(UI_PREFERENCES_SECTION, HAS_SHOWN_PERFORMANCE_NOTICE_OPTION, 'no').lower() == 'yes'
         
-    def set_has_shown_performance_notice(self, has_shown: bool):
+    def set_has_shown_performance_notice(self, has_shown: bool): #...
         self.set(UI_PREFERENCES_SECTION, HAS_SHOWN_PERFORMANCE_NOTICE_OPTION, 'yes' if has_shown else 'no')
+    
+    # --- NEW Methods for Saving/Loading Processing Options ---
+    def save_processing_options(self, options_dict):
+      for key, value in options_dict.items():
+          # Convert booleans to 'yes'/'no' strings for config file
+          if isinstance(value, bool):
+              self.set(PROCESSING_OPTIONS_SECTION, key, 'yes' if value else 'no')
+          else:
+              self.set(PROCESSING_OPTIONS_SECTION, key, value)
+    
+    def load_processing_options(self):
+      return {
+          constants.OPTION_MODEL: self.get(PROCESSING_OPTIONS_SECTION, constants.OPTION_MODEL, 'large (recommended)'),
+          constants.OPTION_DIARIZE: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_DIARIZE, fallback=False),
+          constants.OPTION_AUTO_MERGE: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_AUTO_MERGE, fallback=False),
+          constants.OPTION_TIMESTAMPS: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_TIMESTAMPS, fallback=True),
+          constants.OPTION_END_TIMES: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_END_TIMES, fallback=False)
+      }

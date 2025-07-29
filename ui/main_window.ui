@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1093</width>
-    <height>691</height>
+    <height>712</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -129,10 +129,32 @@
                       </item>
                       <item>
                        <widget class="QPushButton" name="save_token_button">
+                        <property name="sizePolicy">
+                         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                          <horstretch>0</horstretch>
+                          <verstretch>0</verstretch>
+                         </sizepolicy>
+                        </property>
                         <property name="text">
                          <string>Manage Token</string>
                         </property>
                        </widget>
+                      </item>
+                      <item>
+                       <spacer name="horizontalSpacer_4">
+                        <property name="orientation">
+                         <enum>Qt::Orientation::Horizontal</enum>
+                        </property>
+                        <property name="sizeType">
+                         <enum>QSizePolicy::Policy::Preferred</enum>
+                        </property>
+                        <property name="sizeHint" stdset="0">
+                         <size>
+                          <width>0</width>
+                          <height>20</height>
+                         </size>
+                        </property>
+                       </spacer>
                       </item>
                      </layout>
                     </item>
@@ -161,6 +183,12 @@
                     </item>
                     <item>
                      <widget class="QCheckBox" name="end_times_checkbutton">
+                      <property name="sizePolicy">
+                       <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                        <horstretch>0</horstretch>
+                        <verstretch>0</verstretch>
+                       </sizepolicy>
+                      </property>
                       <property name="text">
                        <string>Include End Times</string>
                       </property>

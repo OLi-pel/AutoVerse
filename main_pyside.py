@@ -47,7 +47,7 @@ def run_app():
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
                                  QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, 
-                                 QTextEdit, QWidget, QTabWidget, QGroupBox)
+                                 QTextEdit, QWidget, QTabWidget, QGroupBox, QSpacerItem, QSizePolicy)
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase, QPixmap
     from PySide6.QtUiTools import QUiLoader
 
@@ -58,6 +58,7 @@ def run_app():
     from core.app_worker import processing_worker_function
     from core.audio_processor import AudioProcessor
     from ui.selectable_text_edit import SelectableTextEdit
+    from ui.widgets.collapsible_box import CollapsibleBox
     from utils import tips_data
 
     setup_logging()
@@ -313,6 +314,9 @@ def run_app():
             self.config_manager = ConfigManager(constants.DEFAULT_CONFIG_FILE)
             self.is_processing = False
             self._promote_widgets()
+            self._setup_main_workflow_layout()
+            self._setup_nested_collapsible_options()
+
             self.correction_logic = CorrectionViewLogic(self.window)
             self.tip_widgets = {
                 self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
@@ -325,7 +329,6 @@ def run_app():
             self.queue = None
             self.last_single_file_result_path = None
         
-            # --- PHASE 3: ADD ETR TRACKING VARIABLES ---
             self.current_step_start_time = None
             self.original_status_text = ""
 
@@ -348,7 +351,6 @@ def run_app():
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
                     if welcome_dialog.choice == 'transcribe':
                         self.window.show()
-                        self.select_files() 
                     elif welcome_dialog.choice == 'edit':
                         self.window.main_tab_widget.setCurrentIndex(1)
                         self.window.show()
@@ -357,6 +359,93 @@ def run_app():
                     self.window.show()
             else:
                 self.window.show()
+        
+        def _setup_main_workflow_layout(self):
+            transcription_tab = self.window.findChild(QWidget, "tab")
+            transcription_tab_layout = transcription_tab.layout().findChild(QVBoxLayout)
+
+            # Create Collapsible Boxes
+            self.step1_box = CollapsibleBox("Step 1: Select Audio/Video File(s)", "")
+            self.step2_box = CollapsibleBox("Step 2: Configure Processing Options", "Select file(s) to continue.")
+            self.step3_box = CollapsibleBox("Step 3: Start Processing & View Output", "Configure options to continue.")
+
+            # == STEP 1 MIGRATION ==
+            step1_new_content_layout = QVBoxLayout()
+            original_step1_layout = self.window.Audio_file_frame.layout()
+            while original_step1_layout.count():
+                item = original_step1_layout.takeAt(0)
+                step1_new_content_layout.addItem(item)
+            self.step1_box.setContentLayout(step1_new_content_layout)
+
+            # == STEP 2 MIGRATION (Restoring Horizontal Layout) ==
+            # --- THE FIX for horizontal alignment ---
+            # Get the original group boxes
+            model_frame = self.window.findChild(QGroupBox, "Model_selection_frame")
+            speaker_frame = self.window.Speaker_options_frame
+            timestamps_frame = self.window.Timestamps_options_frame
+            
+            # Set their size policy to allow vertical expansion
+            model_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            speaker_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            timestamps_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+            # Create a new HORIZONTAL layout for the contents of Step 2
+            step2_content_hlayout = QHBoxLayout()
+            step2_content_hlayout.addWidget(model_frame)
+            step2_content_hlayout.addWidget(speaker_frame)
+            step2_content_hlayout.addWidget(timestamps_frame)
+            
+            # Put the horizontal layout inside a main vertical layout for this step
+            self.step2_new_content_layout = QVBoxLayout()
+            self.step2_new_content_layout.addLayout(step2_content_hlayout)
+            self.step2_box.setContentLayout(self.step2_new_content_layout)
+            
+            # == STEP 3 MIGRATION ==
+            step3_content_layout = QVBoxLayout()
+            step3_content_layout.addWidget(self.window.status_and_play_frame)
+            step3_content_layout.addWidget(self.window.Output_area_frame)
+            self.step3_box.setContentLayout(step3_content_layout)
+
+            # Hide the now-empty original containers
+            self.window.Audio_file_frame.setParent(None)
+            self.window.Processing_options_frame.setParent(None)
+            
+            # Clear original main layout and add new collapsible boxes
+            while transcription_tab_layout.count():
+                child = transcription_tab_layout.takeAt(0)
+                if child.widget(): child.widget().setParent(None)
+            
+            transcription_tab_layout.addWidget(self.step1_box)
+            transcription_tab_layout.addWidget(self.step2_box)
+            transcription_tab_layout.addWidget(self.step3_box)
+
+            # Add workflow buttons
+            self.change_files_button = QPushButton("Change Selection")
+            step1_new_content_layout.addWidget(self.change_files_button)
+            
+            self.proceed_button = QPushButton("Continue to Processing")
+            button_container_layout = QHBoxLayout()
+            button_container_layout.addStretch()
+            button_container_layout.addWidget(self.proceed_button)
+            button_container_layout.addStretch()
+            self.step2_new_content_layout.addLayout(button_container_layout)
+            
+            transcription_tab_layout.addStretch(1)
+
+        def _setup_nested_collapsible_options(self):
+            # --- Auto-Merge nested under Speaker Detection ---
+            speaker_frame_layout = self.window.Speaker_options_frame.layout()
+            self.others_speaker_box = CollapsibleBox("Others", is_compact=True)
+            self.others_speaker_box.addWidget(self.window.auto_merge_checkbutton)
+            speaker_frame_layout.addWidget(self.others_speaker_box)
+            self.others_speaker_box.collapse()
+
+            # --- End Times nested under Timestamps ---
+            timestamp_frame_layout = self.window.Timestamps_options_frame.layout()
+            self.others_timestamp_box = CollapsibleBox("Others", is_compact=True)
+            self.others_timestamp_box.addWidget(self.window.end_times_checkbutton)
+            timestamp_frame_layout.addWidget(self.others_timestamp_box)
+            self.others_timestamp_box.collapse()
 
         def _apply_tips_state(self, is_enabled):
             self.window.statusBar().setVisible(is_enabled)
@@ -421,7 +510,6 @@ def run_app():
                 script_content = ""
 
                 if sys.platform == 'darwin':
-                    # ... (macOS updater script unchanged)
                     final_app_path = "/Applications/AutoVerse.app"
                     old_app_path = get_true_application_path()
                     log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
@@ -585,7 +673,6 @@ rm -- "$0"
                     subprocess.Popen(['osascript', applescript_path])
                 
                 elif sys.platform == 'win32':
-                    # ... (windows updater script unchanged)
                     install_dir = os.path.dirname(sys.executable)
                     relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
                     
@@ -680,11 +767,9 @@ rm -- "$0"
                 QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
         
         def _promote_widgets(self):
-            # ...
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
             self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
             self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
-            # --- [MODIFIED] Using the new name from the .ui file ---
             self.window.identify_speakers_checkbutton = self.window.findChild(QCheckBox, "identify_speakers_checkbutton")
             self.window.auto_merge_checkbutton = self.window.findChild(QCheckBox, "auto_merge_checkbutton")
             self.window.timestamps_checkbutton_2 = self.window.findChild(QCheckBox, "timestamps_checkbutton_2")
@@ -699,6 +784,15 @@ rm -- "$0"
             self.window.correction_button = self.window.findChild(QPushButton, "correction_button")
             self.window.main_tab_widget = self.window.findChild(QTabWidget, "tabWidget")
             self.window.show_tips_checkbox = self.window.findChild(QCheckBox, "show_tips_checkbox")
+
+            self.window.Audio_file_frame = self.window.findChild(QGroupBox, "Audio_file_frame")
+            self.window.Processing_options_frame = self.window.findChild(QGroupBox, "Processing_options_frame")
+            self.window.status_and_play_frame = self.window.findChild(QGroupBox, "status_and_play_frame")
+            self.window.Output_area_frame = self.window.findChild(QGroupBox, "Output_area_frame")
+            
+            self.window.Speaker_options_frame = self.window.findChild(QGroupBox, "Speaker_options_frame")
+            self.window.Timestamps_options_frame = self.window.findChild(QGroupBox, "Timestamps_options_frame")
+
             self.window.correction_transcription_entry = self.window.findChild(QLineEdit, "correction_transcription_entry")
             self.window.correction_browse_transcription_btn = self.window.findChild(QPushButton, "correction_browse_transcription_btn")
             self.window.correction_audio_entry = self.window.findChild(QLineEdit, "correction_audio_entry")
@@ -730,10 +824,9 @@ rm -- "$0"
             self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
 
         def _setup_icons(self):
-            # ... (unchanged)
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
-            icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png"}
+            icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png", self.change_files_button: "undo.png", self.proceed_button: "next.png"}
             for widget, filename in icon_map.items():
                 if widget:
                     icon_path = os.path.join(icon_dir, filename)
@@ -752,30 +845,36 @@ rm -- "$0"
 
         def connect_signals(self):
             self.window.browse_button.clicked.connect(self.select_files)
+            self.change_files_button.clicked.connect(self._return_to_file_selection)
+            self.proceed_button.clicked.connect(self._proceed_to_processing_step)
             self.window.start_processing_button.clicked.connect(self.start_or_abort_processing)
             self.window.save_token_button.clicked.connect(self.show_hf_token_dialog)
-            
-            # --- [MODIFIED] Using the new checkbox name ---
             self.window.identify_speakers_checkbutton.stateChanged.connect(self.toggle_speaker_options)
-            
+            self.window.timestamps_checkbutton_2.stateChanged.connect(self.toggle_timestamp_options)
             self.window.correction_button.clicked.connect(self.go_to_correction)
             self.window.show_tips_checkbox.stateChanged.connect(self.on_tips_toggled)
+        
+        @Slot(int)
+        def toggle_timestamp_options(self, state):
+            is_checked = (state == Qt.CheckState.Checked.value)
+            self.others_timestamp_box.setEnabled(is_checked)
+            if not is_checked:
+                self.others_timestamp_box.collapse()
+                self.window.end_times_checkbutton.setChecked(False)
 
-        # --- [MODIFIED] Renamed and updated logic ---
+        @Slot(int)
         def toggle_speaker_options(self, state):
             is_checked = (state == Qt.CheckState.Checked.value)
             
-            self.window.auto_merge_checkbutton.setEnabled(is_checked)
+            self.others_speaker_box.setEnabled(is_checked)
             if not is_checked:
+                self.others_speaker_box.collapse()
                 self.window.auto_merge_checkbutton.setChecked(False)
 
+            self.window.save_token_button.setVisible(is_checked)
             if is_checked:
-                self.window.save_token_button.show()
-                # Check for token and show dialog only if it's missing
                 if not self.config_manager.load_huggingface_token():
                     self.show_hf_token_dialog(is_mandatory=True)
-            else:
-                self.window.save_token_button.hide()
         
         @Slot()
         def show_hf_token_dialog(self, is_mandatory=False):
@@ -785,47 +884,75 @@ rm -- "$0"
             if dialog.exec() == QDialog.Accepted:
                 if dialog.token != current_token:
                     self.window.huggingface_token_entry.setText(dialog.token)
-                    self.save_huggingface_token()
-                    logger.info("Hugging Face token updated via dialog.")
+                    self.config_manager.save_huggingface_token(dialog.token)
+                    self.config_manager.set_use_auth_token(bool(dialog.token))
+                    QMessageBox.information(self.window, "Token Saved", "Hugging Face token has been saved successfully.")
             elif is_mandatory:
-                # User cancelled the mandatory setup, so uncheck the box.
                 self.window.identify_speakers_checkbutton.setChecked(False)
                 logger.warning("Mandatory Hugging Face token setup was cancelled.")
         
         def set_ui_for_processing(self, is_processing):
-            self.window.findChild(QGroupBox, "Audio_file_frame").setEnabled(not is_processing)
-            self.window.findChild(QGroupBox, "Processing_options_frame").setEnabled(not is_processing)
+            self.step1_box.setEnabled(not is_processing)
+            self.step2_box.setEnabled(not is_processing)
+            self.step3_box.setEnabled(True) 
+
             self.window.start_processing_button.setEnabled(True) 
             self.window.main_tab_widget.setTabEnabled(1, not is_processing)
+            
             if is_processing:
                 self.window.start_processing_button.setText("Abort")
                 self.window.start_processing_button.setIcon(self.window.icon_abort)
             else:
                 self.window.start_processing_button.setText("Start Processing")
                 self.window.start_processing_button.setIcon(self.window.icon_play)
+            
             self.is_processing = is_processing
         
         def get_processing_options(self):
-            return {"model_key": self.window.model_dropdown.currentText(), "enable_diarization": self.window.identify_speakers_checkbutton.isChecked(), "auto_merge": self.window.auto_merge_checkbutton.isChecked(), "include_timestamps": self.window.timestamps_checkbutton_2.isChecked(), "include_end_times": self.window.end_times_checkbutton.isChecked(), "hf_token": self.window.huggingface_token_entry.text().strip()}
-
+            return {
+                constants.OPTION_MODEL: self.window.model_dropdown.currentText(), 
+                constants.OPTION_DIARIZE: self.window.identify_speakers_checkbutton.isChecked(), 
+                constants.OPTION_AUTO_MERGE: self.window.auto_merge_checkbutton.isChecked(), 
+                constants.OPTION_TIMESTAMPS: self.window.timestamps_checkbutton_2.isChecked(), 
+                constants.OPTION_END_TIMES: self.window.end_times_checkbutton.isChecked(), 
+                "hf_token": self.window.huggingface_token_entry.text().strip()
+            }
+        
         def load_initial_settings(self):
+            # Visual Setup
             self.window.huggingface_token_frame.hide()
-
             self.window.save_token_button.setText("Manage Token")
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             key_icon_path = os.path.join(base_dir, 'assets', 'icons', 'key.png')
             if os.path.exists(key_icon_path):
                  self.window.save_token_button.setIcon(QIcon(key_icon_path))
-            self.window.save_token_button.hide() # Initially hidden
-
-            self.window.correction_button.setEnabled(False)
-            self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
-            self.window.model_dropdown.setCurrentText("large (recommended)")
             
-            token = self.config_manager.load_huggingface_token()
-            if token:
-                self.window.huggingface_token_entry.setText(token)
+            self.window.correction_button.setEnabled(False)
 
+            self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
+            
+            saved_options = self.config_manager.load_processing_options()
+            self.window.model_dropdown.setCurrentText(saved_options.get(constants.OPTION_MODEL, "large (recommended)"))
+            self.window.identify_speakers_checkbutton.setChecked(saved_options.get(constants.OPTION_DIARIZE, False))
+            self.window.auto_merge_checkbutton.setChecked(saved_options.get(constants.OPTION_AUTO_MERGE, False))
+            self.window.timestamps_checkbutton_2.setChecked(saved_options.get(constants.OPTION_TIMESTAMPS, True))
+            self.window.end_times_checkbutton.setChecked(saved_options.get(constants.OPTION_END_TIMES, False))
+
+            token = self.config_manager.load_huggingface_token()
+            if token: self.window.huggingface_token_entry.setText(token)
+            
+            # --- THE BUG FIX ---
+            is_diarize_checked = self.window.identify_speakers_checkbutton.isChecked()
+            diarize_check_state = Qt.CheckState.Checked.value if is_diarize_checked else Qt.CheckState.Unchecked.value
+            self.toggle_speaker_options(diarize_check_state)
+
+            is_ts_checked = self.window.timestamps_checkbutton_2.isChecked()
+            ts_check_state = Qt.CheckState.Checked.value if is_ts_checked else Qt.CheckState.Unchecked.value
+            self.toggle_timestamp_options(ts_check_state)
+            
+            # Initial UI state for accordion workflow
+            self._set_workflow_step(1)
+            
             font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
             self.window.font_size_combo.addItems(font_sizes)
             self.window.font_size_combo.setCurrentText("12")
@@ -834,34 +961,90 @@ rm -- "$0"
             self.window.text_font_combo.addItems(font_families)
             default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"
             self.window.text_font_combo.setCurrentText(default_font)
+
             if self.window.correction_play_pause_btn:
                 button = self.window.correction_play_pause_btn
                 font_metrics = QFontMetrics(button.font())
                 text_width = font_metrics.boundingRect("Pause ").width()
                 padding = 40 
                 button.setFixedWidth(text_width + padding)
+
             logger.info("Initial settings loaded.")
             show_tips = self.config_manager.get_main_window_show_tips()
             self.window.show_tips_checkbox.setChecked(show_tips)
             self._apply_tips_state(show_tips)
             self.correction_logic.set_tips_enabled(show_tips)
             logger.info(f"Loaded tips preference on startup: {show_tips}")
-
-        def save_huggingface_token(self):
-            token = self.window.huggingface_token_entry.text().strip()
-            self.config_manager.save_huggingface_token(token)
-            self.config_manager.set_use_auth_token(bool(token))
-            QMessageBox.information(self.window, "Token Saved", "Hugging Face token has been saved successfully.")
-
+            
         @Slot()
         def select_files(self):
             if self.is_processing: return
             file_filter = ("All Media Files (*.wav *.mp3 *.aac *.flac *.m4a *.mp4 *.mov *.avi *.mkv);;Audio Files (*.wav *.mp3 *.aac *.flac *.m4a);;Video Files (*.mp4 *.mov *.avi *.mkv);;All Files (*)")
             paths, _ = QFileDialog.getOpenFileNames(self.window, "Select Audio or Video Files", "", file_filter)
+            
             if paths:
                 self.audio_file_paths = paths
-                self.window.audio_file_entry.setText(paths[0] if len(paths) == 1 else f"{len(paths)} files selected")
+                summary = f"{len(paths)} file(s) selected: {os.path.basename(paths[0])}"
+                if len(paths) > 1: summary += ", ..."
+                self.step1_box.set_summary_text(summary)
                 self.window.correction_button.setEnabled(False)
+                self._set_workflow_step(2)
+
+        def _set_workflow_step(self, step_number):
+            if step_number == 1:
+                self.step1_box.expand()
+                self.step2_box.collapse()
+                self.step3_box.collapse()
+                
+                self.step2_box.setEnabled(False)
+                self.step3_box.setEnabled(False)
+                self.step2_box.set_summary_text("Select file(s) to continue.")
+                self.step3_box.set_summary_text("Configure options to continue.")
+
+                self.change_files_button.hide()
+            
+            elif step_number == 2:
+                self.step1_box.collapse()
+                self.step2_box.expand()
+                self.step3_box.collapse()
+
+                self.step2_box.setEnabled(True)
+                self.step3_box.setEnabled(False)
+                self.step2_box.set_summary_text("")
+                self.step3_box.set_summary_text("Configure options to continue.")
+                
+                self.change_files_button.show()
+                self.window.browse_button.hide() # Browse is inside the now-open box
+            
+            elif step_number == 3:
+                self.step1_box.collapse()
+                self.step2_box.collapse()
+                self.step3_box.expand()
+                
+                self.step2_box.setEnabled(True)
+                self.step3_box.setEnabled(True)
+                
+                options = self.get_processing_options()
+                model = options[constants.OPTION_MODEL]
+                diarize = "Diarization" if options[constants.OPTION_DIARIZE] else "No Diarization"
+                self.step2_box.set_summary_text(f"{model}, {diarize}")
+                self.step3_box.set_summary_text("")
+                self.start_or_abort_processing()
+                
+        @Slot()
+        def _return_to_file_selection(self):
+            if self.is_processing:
+                QMessageBox.warning(self.window, "Processing Active", "Cannot change file selection while processing is active.")
+                return
+            self._set_workflow_step(1)
+
+        @Slot()
+        def _proceed_to_processing_step(self):
+            # Save the current options before proceeding
+            self.config_manager.save_processing_options(self.get_processing_options())
+            logger.info("Processing options saved.")
+            
+            self._set_workflow_step(3)
 
         @Slot()
         def start_or_abort_processing(self):
@@ -878,27 +1061,25 @@ rm -- "$0"
 
             if not self.audio_file_paths:
                 QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
+                self._set_workflow_step(1)
                 return
             
-            # --- PHASE 3+: Add the one-time informational pop-up ---
             if not self.config_manager.get_has_shown_performance_notice():
-                title = "First-Time Processing Notice"
-                message = (
+                QMessageBox.information(self.window, "First-Time Processing Notice",
                     "The first time you run a model, AutoVerse may need to download a few gigabytes of AI model files from the internet.\n\n"
                     "---\n\n"
                     "<b>Smart Time Estimates</b>\n\n"
                     "For future runs, AutoVerse will provide an Estimated Time Remaining (ETR). This estimate will automatically learn from your computer's performance and become more accurate over time.\n\n"
                     "This is a one-time message."
                 )
-                QMessageBox.information(self.window, title, message)
                 self.config_manager.set_has_shown_performance_notice(True)
-            # --- END of new logic ---
 
             destination_folder = None
             if len(self.audio_file_paths) > 1:
                 destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder for Transcriptions")
                 if not destination_folder:
                     self.window.status_label.setText("Batch processing cancelled.")
+                    self._set_workflow_step(2)
                     return
 
             self.set_ui_for_processing(True)
@@ -908,8 +1089,7 @@ rm -- "$0"
             options = self.get_processing_options()
             cache_dir = os.path.join(os.path.expanduser('~'), 'AutoVerse_Cache')
             ffmpeg_path = _get_bundled_ffmpeg_path()
-            if ffmpeg_path:
-                logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
+            if ffmpeg_path: logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
 
             self.queue = multiprocessing.Queue()
             self.process = multiprocessing.Process(
@@ -920,46 +1100,35 @@ rm -- "$0"
             self.process.start()
             self.timer.start(100)
 
-        # --- Corrected in this step ---
         def check_queue(self):
             try:
                 msg_type, data = self.queue.get_nowait()
 
                 if msg_type == constants.MSG_TYPE_PROGRESS:
                     self.window.progress_bar.setValue(data)
-
                 elif msg_type == constants.MSG_TYPE_STATUS:
                     self.window.status_label.setText(data)
                     self.window.progress_bar.setValue(0)
-                    # A new step is starting, so record its start time and original status text
                     self.current_step_start_time = time.time()
                     self.original_status_text = data
-                
                 elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS:
                     percentage = data
                     self.window.progress_bar.setValue(percentage)
                     if self.current_step_start_time is not None and percentage > 2:
                         elapsed_time = time.time() - self.current_step_start_time
-                        # Predict total time based on current progress
                         total_predicted_time = (elapsed_time / percentage) * 100
                         remaining_time = total_predicted_time - elapsed_time
-                        
                         if remaining_time > 0:
-                            etr_string = self._format_etr(remaining_time)
-                            # Update the status label with the ETR
-                            self.window.status_label.setText(f"{self.original_status_text} (ETR: ~{etr_string})")
-
+                            self.window.status_label.setText(f"{self.original_status_text} (ETR: ~{self._format_etr(remaining_time)})")
                 elif msg_type == constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR:
                     model_key, new_factor = data
                     logger.info(f"Received new performance factor for '{model_key}': {new_factor:.4f}. Saving.")
                     self.config_manager.save_performance_factor(model_key, new_factor)
-                
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
                     file_info = data
                     status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
                     self.window.status_label.setText(status)
                     self.window.progress_bar.setValue(0)
-                
                 elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED:
                     self.current_step_start_time = None
                     self.timer.stop()
@@ -977,9 +1146,7 @@ rm -- "$0"
                         QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
         
-        # --- NEW HELPER METHOD FOR ETR FORMATTING ---
         def _format_etr(self, seconds: float) -> str:
-            """Formats seconds into a human-readable M:SS or S string."""
             if seconds < 60:
                 return f"{int(seconds)}s"
             else:
@@ -1029,7 +1196,7 @@ rm -- "$0"
                 return
 
             base_name, _ = os.path.splitext(os.path.basename(result.source_file))
-            model_name = self.get_processing_options()["model_key"].split(" ")[0]
+            model_name = self.get_processing_options()[constants.OPTION_MODEL].split(" ")[0]
             default_fn = os.path.join(os.getcwd(), f"{base_name}_{model_name}_transcription.txt")
             save_path, _ = QFileDialog.getSaveFileName(self.window, "Save Transcription As", default_fn, "Text Files (*.txt)")
             

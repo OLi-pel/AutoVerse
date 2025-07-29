@@ -4,7 +4,7 @@ import sys
 import logging
 
 # --- Application Version ---
-APP_VERSION = "1.0.1" 
+APP_VERSION = "1.0.3" 
 
 # --- User-specific Application Data Directory ---
 APP_NAME = "AutoVerse"
@@ -50,6 +50,14 @@ STATUS_ERROR = "ERROR"
 # --- Default output file name ---
 DEFAULT_OUTPUT_TEXT_FILE = "processed_output.txt" 
 DEFAULT_CONFIG_FILE = os.path.join(APP_USER_DATA_DIR, 'config.ini')
+
+# --- Processing Option Keys for Settings ---
+OPTION_MODEL = 'model_key'
+OPTION_DIARIZE = 'enable_diarization'
+OPTION_AUTO_MERGE = 'auto_merge'
+OPTION_TIMESTAMPS = 'include_timestamps'
+OPTION_END_TIMES = 'include_end_times'
+
 
 # --- Special Labels ---
 NO_SPEAKER_LABEL = "SPEAKER_NONE_INTERNAL"
