@@ -468,8 +468,11 @@ def run_app():
                 logger.warning("Terminating active process due to application quit.")
                 self.process.terminate()
                 self.process.join(1)
-            if hasattr(self, 'correction_logic') and hasattr(self.correction_logic, 'audio_player'):
-                self.correction_logic.audio_player.destroy()
+            if hasattr(self, 'correction_logic'):
+                if hasattr(self.correction_logic, 'cleanup'):
+                    self.correction_logic.cleanup()
+                elif hasattr(self.correction_logic, 'audio_player'):
+                    self.correction_logic.audio_player.destroy()
             logger.info("Cleanup finished.")
 
         @Slot(str, str, str)

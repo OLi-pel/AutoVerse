@@ -51,6 +51,7 @@ kiwisolver==1.4.8
 kornia==0.8.1
 kornia_rs==0.1.9
 lazy_loader==0.4
+librosa==0.10.2
 lightning==2.5.1.post0
 lightning-utilities==0.14.3
 llvmlite==0.44.0

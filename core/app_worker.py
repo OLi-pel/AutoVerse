@@ -112,7 +112,13 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                     timer.start()
                     
                     start_time = time.time()
-                    diarization_result = audio_processor.diarization_handler.diarize(audio_to_process)
+                    try:
+                        diarization_result = audio_processor.diarization_handler.diarize(audio_to_process)
+                    except Exception as diar_error:
+                        worker_logger.warning(f"Diarization failed for {os.path.basename(file_path)}: {diar_error}")
+                        worker_logger.warning("Continuing with transcription only (no speaker identification)")
+                        diarization_result = None
+                    
                     actual_time = time.time() - start_time
                     stop_event.set()
                     
@@ -120,7 +126,10 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                         new_factor = (actual_time * MODEL_SPEEDS['diarization']) / duration_sec
                         queue.put((constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR, ("diarization", new_factor)))
                     
-                    progress_callback("Speaker identification complete.", 100)
+                    if diarization_result is not None:
+                        progress_callback("Speaker identification complete.", 100)
+                    else:
+                        progress_callback("Speaker identification skipped due to error.", 100)
                 else:
                     diarization_result = None
                 

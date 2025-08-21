@@ -61,6 +61,51 @@ class DiarizationHandler:
             diarization_result = self.pipeline(audio_path)
             logger.info("DiarizationHandler: Diarization completed successfully.")
             return diarization_result
+        except RuntimeError as e:
+            if "Sizes of tensors must match except in dimension 0" in str(e):
+                logger.warning(f"Tensor size mismatch in diarization for {audio_path}. Attempting to preprocess audio...")
+                try:
+                    # Try preprocessing the audio to fix tensor size issues
+                    preprocessed_result = self._preprocess_and_diarize(audio_path)
+                    if preprocessed_result is not None:
+                        logger.info("DiarizationHandler: Diarization completed successfully after preprocessing.")
+                        return preprocessed_result
+                    else:
+                        logger.warning(f"Preprocessing failed for {audio_path}. Skipping diarization.")
+                        return None
+                except Exception as preprocess_error:
+                    logger.warning(f"Preprocessing failed for {audio_path}: {preprocess_error}. Skipping diarization.")
+                    return None
+            else:
+                logger.error(f"Error during diarization: {e}", exc_info=True)
+                raise
         except Exception as e:
             logger.error(f"Error during diarization: {e}", exc_info=True)
             raise
+
+    def _preprocess_and_diarize(self, audio_path: str):
+        """
+        Preprocess audio to handle tensor size mismatches by ensuring consistent chunk sizes.
+        """
+        from utils.audio_utils import preprocess_audio_for_diarization, cleanup_temp_file
+        
+        temp_path = None
+        try:
+            # Preprocess the audio to fix tensor size issues
+            temp_path = preprocess_audio_for_diarization(audio_path)
+            
+            if temp_path is None:
+                logger.error("Audio preprocessing failed")
+                return None
+            
+            # Try diarization with the preprocessed audio
+            diarization_result = self.pipeline(temp_path)
+            return diarization_result
+            
+        except Exception as e:
+            logger.error(f"Error in preprocessed diarization: {e}", exc_info=True)
+            return None
+        finally:
+            # Clean up temporary file
+            if temp_path:
+                cleanup_temp_file(temp_path)

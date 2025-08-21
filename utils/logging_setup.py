@@ -59,8 +59,9 @@ def setup_logging():
 
     # Example: To set different levels for noisy libraries
     # logging.getLogger('httpx').setLevel(logging.WARNING)
-    # logging.getLogger('pyannote').setLevel(logging.INFO) 
-    # logging.getLogger('whisper').setLevel(logging.INFO)
+    logging.getLogger('pyannote').setLevel(logging.WARNING)  # Reduce pyannote noise
+    logging.getLogger('whisper').setLevel(logging.INFO)
+    logging.getLogger('torchaudio').setLevel(logging.WARNING)  # Reduce torchaudio warnings
     
     # Use the root logger for the initial message
     logging.info(initial_log_message)

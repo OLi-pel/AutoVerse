@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (QFileDialog, QMessageBox, QVBoxLayout, QColorDial
                                QDialogButtonBox, QLabel, QLineEdit, QGridLayout, QScrollArea, 
                                QWidget, QComboBox, QRadioButton, QHBoxLayout, QPushButton,
                                QSizePolicy)
-from PySide6.QtCore import QObject, Slot, Qt, QSize
+from PySide6.QtCore import QObject, Slot, Qt, QSize, QTimer
 from PySide6.QtGui import QTextCursor, QTextCharFormat, QColor, QFont, QIcon
 
 from core.correction_window_logic import SegmentManager
@@ -80,6 +80,13 @@ class CorrectionViewLogic(QObject):
         self.set_controls_enabled(False)
         self._update_text_area_font()
         self._update_undo_redo_buttons_state(False, False)
+        
+        # Set up automatic saving
+        self.auto_save_timer = QTimer()
+        self.auto_save_timer.timeout.connect(self._auto_save)
+        self.auto_save_interval = 2 * 60 * 1000  # 2 minutes in milliseconds
+        self.auto_save_enabled = False
+        self._cleaned_up = False
 
     def set_tips_enabled(self, is_enabled):
             for widget, tip_key in self.tip_widgets.items():
@@ -175,6 +182,9 @@ class CorrectionViewLogic(QObject):
         audio = self.main_window.correction_audio_entry.text()
         if not txt or not audio: return
         
+        # Stop any existing auto-save before loading new files
+        self._stop_auto_save()
+        
         self.current_audio_path = audio; self.current_txt_path = txt
         
         try:
@@ -186,8 +196,13 @@ class CorrectionViewLogic(QObject):
             if not self.audio_player.load_file(audio): raise IOError("Audio player failed to load file.")
             self.timeline.set_waveform_data(self.audio_player.get_normalized_waveform()); self.timeline.set_duration(self.audio_player.get_duration())
             self.update_audio_progress(0); self.set_controls_enabled(True); self.update_play_button_state(playing=False)
+            
+            # Start auto-save timer when files are successfully loaded
+            self._start_auto_save()
         except Exception as e:
             logger.exception("Load error."); self.set_controls_enabled(False); QMessageBox.critical(self.main_window, "Load Error", str(e))
+            # Stop auto-save if loading failed
+            self._stop_auto_save()
     
     # ... The rest of the file is unchanged ...
     @Slot()
@@ -505,14 +520,82 @@ class CorrectionViewLogic(QObject):
     @Slot()
     def save_changes(self): self._safe_action(self._save_changes_action)
     def _save_changes_action(self):
-        if not self.segment_manager.segments: return
-        self.undo_manager.clear(); path, _=QFileDialog.getSaveFileName(self.main_window, "Save", "", "Text Files (*.txt)");
-        if path:
-            try:
-                save_data = self.segment_manager.format_segments_for_saving(True, True)
-                with open(path, 'w', encoding='utf-8') as f: f.write('\n'.join(save_data))
-                QMessageBox.information(self.main_window, "Saved", f"Transcription saved to {path}")
-            except IOError as e: QMessageBox.critical(self.main_window, "Save Error", f"Could not save file: {e}")
+        if not self.segment_manager.segments or not self.current_txt_path: 
+            return
+        
+        try:
+            save_data = self.segment_manager.format_segments_for_saving(True, True)
+            with open(self.current_txt_path, 'w', encoding='utf-8') as f: 
+                f.write('\n'.join(save_data))
+            logger.info(f"Transcription saved to {self.current_txt_path}")
+            # Show a brief status message instead of a popup
+            if hasattr(self.main_window, 'statusBar'):
+                self.main_window.statusBar().showMessage(f"Saved to {os.path.basename(self.current_txt_path)}", 3000)
+        except IOError as e: 
+            logger.error(f"Save error: {e}")
+            QMessageBox.critical(self.main_window, "Save Error", f"Could not save file: {e}")
+    
+    def _auto_save(self):
+        """Automatically save the current document if there are changes."""
+        if not self.segment_manager.segments or not self.current_txt_path:
+            return
+            
+        try:
+            save_data = self.segment_manager.format_segments_for_saving(True, True)
+            with open(self.current_txt_path, 'w', encoding='utf-8') as f: 
+                f.write('\n'.join(save_data))
+            logger.debug(f"Auto-saved transcription to {self.current_txt_path}")
+            # Show a subtle status message for auto-save
+            if hasattr(self.main_window, 'statusBar'):
+                self.main_window.statusBar().showMessage("Auto-saved", 1500)
+        except IOError as e: 
+            logger.warning(f"Auto-save failed: {e}")
+            # Don't show error popup for auto-save failures, just log it
+    
+    def _start_auto_save(self):
+        """Start the automatic save timer."""
+        if self.current_txt_path and self.segment_manager.segments:
+            self.auto_save_enabled = True
+            self.auto_save_timer.start(self.auto_save_interval)
+            minutes = self.auto_save_interval // 1000 // 60
+            logger.info(f"Auto-save started (every {minutes} minutes)")
+            # Show status message to user
+            if hasattr(self.main_window, 'statusBar'):
+                self.main_window.statusBar().showMessage(f"Auto-save enabled (every {minutes} min)", 5000)
+    
+    def _stop_auto_save(self):
+        """Stop the automatic save timer."""
+        self.auto_save_enabled = False
+        self.auto_save_timer.stop()
+        logger.debug("Auto-save stopped")
+    
+    def set_auto_save_interval(self, minutes):
+        """Set the auto-save interval in minutes."""
+        self.auto_save_interval = minutes * 60 * 1000  # Convert to milliseconds
+        if self.auto_save_enabled:
+            # Restart timer with new interval
+            self._stop_auto_save()
+            self._start_auto_save()
+            logger.info(f"Auto-save interval changed to {minutes} minutes")
+    
+    def force_save(self):
+        """Manually trigger a save (useful for testing or after significant changes)."""
+        if self.current_txt_path and self.segment_manager.segments:
+            self._auto_save()
+            return True
+        return False
+    
+    def cleanup(self):
+        """Clean up resources when the correction window is closed."""
+        if hasattr(self, '_cleaned_up') and self._cleaned_up:
+            return
+        self._cleaned_up = True
+        
+        logger.debug("Cleaning up correction view logic")
+        self._stop_auto_save()
+        if hasattr(self, 'audio_player') and self.audio_player:
+            self.audio_player.destroy()
+            self.audio_player = None
             
     @Slot()
     def browse_transcription_file(self): self._safe_action(self._browse_transcription_file_action)

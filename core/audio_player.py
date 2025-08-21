@@ -37,6 +37,7 @@ class _PlayerWorker(QObject):
         self._chunk_size_frames = 1024
         self._is_paused = False
         self._stop_requested = False
+        self._cleaned_up = False
 
     @Slot(np.ndarray, int)
     def load_data(self, audio_data, sample_rate):
@@ -137,8 +138,14 @@ class _PlayerWorker(QObject):
         self.state_changed.emit(False)
 
     def cleanup(self):
+        if hasattr(self, '_cleaned_up') and self._cleaned_up:
+            return
+        self._cleaned_up = True
+        
         self._stop()
-        if self.pyaudio_instance: self.pyaudio_instance.terminate()
+        if hasattr(self, 'pyaudio_instance') and self.pyaudio_instance: 
+            self.pyaudio_instance.terminate()
+            self.pyaudio_instance = None
 
 class AudioPlayer(QObject):
     _load_requested = Signal(np.ndarray, int)
@@ -161,6 +168,7 @@ class AudioPlayer(QObject):
         self._prepared_for_device_name = None
         self.is_playing = False
         self._temp_wav_path = None
+        self._destroyed = False
         self.thread = QThread()
         self.worker = _PlayerWorker()
 
@@ -482,11 +490,18 @@ class AudioPlayer(QObject):
     def get_normalized_waveform(self): return self._normalized_waveform
     
     def destroy(self):
+        if hasattr(self, '_destroyed') and self._destroyed:
+            logger.debug("AudioPlayer already destroyed, skipping.")
+            return
+            
         logger.info("Destroying AudioPlayer resources.")
+        self._destroyed = True
+        
         self._cleanup_temp_file()
-        if self.thread.isRunning():
+        if hasattr(self, 'thread') and self.thread and self.thread.isRunning():
             self._stop_requested.emit()
-            self.worker.cleanup()
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.cleanup()
             self.thread.quit()
             if not self.thread.wait(3000):
                 logger.warning("Audio player thread did not quit gracefully. Terminating.")
