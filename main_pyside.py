@@ -60,6 +60,8 @@ def run_app():
     from ui.selectable_text_edit import SelectableTextEdit
     from ui.widgets.collapsible_box import CollapsibleBox
     from utils import tips_data
+    from core.tutorial_manager import TutorialManager
+    from ui.widgets.tutorial_overlay import TutorialOverlay
 
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -323,6 +325,14 @@ def run_app():
             }
             self._setup_fonts()
             self._setup_icons()
+
+            # --- ADD TUTORIAL SYSTEM INITIALIZATION HERE ---
+            self.tutorial_overlay = TutorialOverlay(self.window)
+            # --- THIS IS THE FIX ---
+            self.tutorial_manager = TutorialManager(self, self.tutorial_overlay) # Pass 'self' (MainApplication) instead of 'self.window'
+            # --- END OF FIX ---
+            self._setup_tutorial_menu()
+
             self.app.aboutToQuit.connect(self.cleanup)
             self.audio_file_paths = []
             self.process = None
@@ -359,6 +369,17 @@ def run_app():
                     self.window.show()
             else:
                 self.window.show()
+        
+        def _setup_tutorial_menu(self):
+            """Creates the Help menu and adds the tutorial action."""
+            menu_bar = self.window.menuBar()
+            help_menu = menu_bar.addMenu("&Help")
+            
+            start_tutorial_action = help_menu.addAction("Start Transcription Tutorial")
+            start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
+            start_tutorial_action.triggered.connect(
+                lambda: self.tutorial_manager.start_tutorial("transcription")
+            )
         
         def _setup_main_workflow_layout(self):
             transcription_tab = self.window.findChild(QWidget, "tab")
@@ -424,6 +445,7 @@ def run_app():
             step1_new_content_layout.addWidget(self.change_files_button)
             
             self.proceed_button = QPushButton("Continue to Processing")
+            self.proceed_button.setObjectName("proceed_button")
             button_container_layout = QHBoxLayout()
             button_container_layout.addStretch()
             button_container_layout.addWidget(self.proceed_button)
@@ -473,6 +495,7 @@ def run_app():
                     self.correction_logic.cleanup()
                 elif hasattr(self.correction_logic, 'audio_player'):
                     self.correction_logic.audio_player.destroy()
+            if hasattr(self, 'tutorial_overlay'): self.tutorial_overlay.hide()
             logger.info("Cleanup finished.")
 
         @Slot(str, str, str)
@@ -829,6 +852,7 @@ rm -- "$0"
         def _setup_icons(self):
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
+            self.window.icon_dir = icon_dir
             icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png", self.change_files_button: "undo.png", self.proceed_button: "next.png"}
             for widget, filename in icon_map.items():
                 if widget:
@@ -1005,6 +1029,7 @@ rm -- "$0"
                 self.step3_box.set_summary_text("Configure options to continue.")
 
                 self.change_files_button.hide()
+                self.window.browse_button.show()  # Ensure browse button is visible in step 1
             
             elif step_number == 2:
                 self.step1_box.collapse()
@@ -1060,7 +1085,16 @@ rm -- "$0"
                 self.window.status_label.setText("Processing aborted by user.")
                 self.window.progress_bar.setValue(0)
                 self.set_ui_for_processing(False)
+                
+                # Resume tutorial after processing abort
+                if self.tutorial_manager.paused_state:
+                    self.tutorial_manager.resume_tutorial()
                 return
+
+            # --- ADD THIS CHECK ---
+            if self.tutorial_manager.is_active:
+                self.tutorial_manager.pause_tutorial()
+            # --- END OF ADDITION ---
 
             if not self.audio_file_paths:
                 QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
@@ -1148,6 +1182,10 @@ rm -- "$0"
                     if "aborted" not in self.window.status_label.text():
                         QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
+                    
+                    # Resume tutorial after processing error
+                    if self.tutorial_manager.paused_state:
+                        self.tutorial_manager.resume_tutorial()
         
         def _format_etr(self, seconds: float) -> str:
             if seconds < 60:
@@ -1175,6 +1213,10 @@ rm -- "$0"
                     self.window.status_label.setText(f"Error: {msg[:100]}...")
                     self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}")
                     QMessageBox.critical(self.window, "Processing Error", msg)
+                
+                # Resume tutorial after single file processing
+                if self.tutorial_manager.paused_state:
+                    self.tutorial_manager.resume_tutorial()
             else: 
                 for result in results:
                     file_name = os.path.basename(result.source_file)
@@ -1190,6 +1232,9 @@ rm -- "$0"
                 QMessageBox.information(self.window, "Batch Processing Complete", final_status_msg)
             
             self.set_ui_for_processing(False)
+
+            if self.tutorial_manager.paused_state:
+                self.tutorial_manager.resume_tutorial()
         
         def prompt_and_save_single_result(self, result):
             if hasattr(result, 'output_path') and result.output_path:
@@ -1226,6 +1271,9 @@ rm -- "$0"
             txt_path = self.last_single_file_result_path
             self.correction_logic.load_files_from_paths(audio_path=audio_path, txt_path=txt_path)
             self.window.main_tab_widget.setCurrentIndex(1)
+
+            if self.tutorial_manager.is_active:
+                self.tutorial_manager.exit_tutorial()
 
     app = QApplication(sys.argv)
     main_app = MainApplication(app)

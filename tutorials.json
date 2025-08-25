@@ -1,0 +1,78 @@
+{
+  "transcription": [
+    {
+      "target_widget": "browse_button",
+      "title": "Step 1: Select a File",
+      "text": "Welcome to AutoVerse! To start, click the highlighted 'Browse' button to select an audio or video file you want to transcribe.",
+      "validation": {
+        "type": "file_selected",
+        "action": "select_files"
+      },
+      "pre_action": {
+        "target": "step1_box",
+        "method": "expand"
+      }
+    },
+    {
+      "target_widget": "model_dropdown",
+      "title": "Step 2: Choose a Model",
+      "text": "Now, choose the transcription model. The 'large' model is the most accurate and is already selected for you. You can change it if needed, or click Next to continue.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "identify_speakers_checkbutton",
+      "title": "Step 3: Identify Speakers",
+      "text": "If your audio has multiple speakers, check this box. This will automatically label who is speaking (e.g., SPEAKER_00, SPEAKER_01).",
+      "validation": {
+        "type": "checked"
+      }
+    },
+    {
+      "target_widget": "timestamps_checkbutton_2",
+      "title": "Step 4: Include Timestamps",
+      "text": "It's highly recommended to include timestamps. This makes your transcript much easier to review and edit later. Ensure this box is checked.",
+      "validation": {
+        "type": "checked"
+      }
+    },
+    {
+      "target_widget": "proceed_button",
+      "title": "Step 5: Continue",
+      "text": "Great! All the main options are set. Click the 'Continue to Processing' button to move to the final step.",
+      "validation": {
+        "type": "action_click",
+        "action": "_proceed_to_processing_step"
+      }
+    },
+    {
+      "target_widget": "start_processing_button",
+      "title": "Step 6: Start Processing",
+      "text": "You're all set! Click 'Start Processing' to begin. The tutorial will hide while processing and reappear when it's finished.",
+      "pre_action": {
+        "target": "step3_box",
+        "method": "expand"
+      },
+      "validation": {
+        "type": "action_click",
+        "action": "start_or_abort_processing"
+      }
+    },
+    {
+      "target_widget": "output_text_area",
+      "title": "Step 7: View Your Transcript",
+      "text": "Congratulations! Your transcript appears here. The final step is to move to the Correction tab for advanced editing.",
+      "type": "passive"
+    },
+    {
+      "target_widget": "correction_button",
+      "title": "Step 8: Head to Correction",
+      "text": "Click the 'Head to correction tab' button to open this transcript in the advanced editor. This will end the tutorial.",
+      "validation": {
+        "type": "action_click",
+        "action": "go_to_correction"
+      }
+    }
+  ]
+}
