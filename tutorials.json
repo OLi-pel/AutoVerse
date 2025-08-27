@@ -1,5 +1,5 @@
 {
-  "transcription": [
+  "main_tutorial": [
     {
       "target_widget": "browse_button",
       "title": "Step 1: Select a File",
@@ -68,11 +68,163 @@
     {
       "target_widget": "correction_button",
       "title": "Step 8: Head to Correction",
-      "text": "Click the 'Head to correction tab' button to open this transcript in the advanced editor. This will end the tutorial.",
+      "text": "Click the 'Head to correction tab' button to open this transcript in the advanced editor. This will continue the tutorial.",
       "validation": {
         "type": "action_click",
         "action": "go_to_correction"
       }
+    },
+    {
+      "target_widget": "Load_objects_frame",
+      "title": "Step 9: Loading Files for Correction",
+      "text": "The application has automatically loaded your new transcript and audio into the Correction Tab. To teach you how this works, we'll now guide you through the manual loading process. Click Next to continue.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_browse_transcription_btn",
+      "title": "Step 10: Load Transcript File",
+      "text": "First, click 'Browse Transcript' to select a transcript file (.txt) that you want to edit and refine.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_browse_audio_btn",
+      "title": "Step 11: Load Audio File",
+      "text": "Next, click 'Browse Audio' to select the corresponding audio file. This enables playback and timeline features for precise editing.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_load_files_btn",
+      "title": "Step 12: Load Files",
+      "text": "Now click 'Load Files' to load both files into the editor. The transcript will appear in the text area and the audio waveform will be displayed.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_text_area",
+      "title": "Step 13: Navigate the Transcript",
+      "text": "This is your transcript editor. Here are the main ways to interact with it:\n\n- **Click** a segment to select it.\n- **Hold Shift and click** another segment to select a range.\n- **Double-click** a segment's text to edit it instantly.\n\nTry selecting a few segments now. Notice how the editing buttons become active.",
+      "validation": {
+        "type": "interactive_widget",
+        "allow_interaction": true
+      }
+    },
+    {
+      "target_widget": "correction_play_pause_btn",
+      "title": "Step 14: Audio Playback",
+      "text": "Use this button to play or pause the audio. The timeline above shows the waveform and current playback position.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_timeline_frame",
+      "title": "Step 15: Timeline Navigation",
+      "text": "Click anywhere on the timeline to jump to that position in the audio. Watch how the playback position changes when you click different parts of the waveform. This helps you navigate quickly to specific parts of your recording. Try clicking a few different positions!",
+      "validation": {
+        "type": "interactive_widget",
+        "allow_interaction": true
+      }
+    },
+    {
+      "target_widget": "correction_text_edit_btn",
+      "title": "Step 16: Edit Text",
+      "text": "This button lets you edit the text of a selected segment. A faster way to do this is to simply **double-click** on any segment's text to start editing it immediately.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_timestamp_edit_btn",
+      "title": "Step 17: Edit Timestamps",
+      "text": "This button adjusts segment timestamps. It's disabled because no segment is selected. Select a segment first, then use this to fine-tune timing with the timeline and audio controls.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "edit_speaker_btn",
+      "title": "Step 18: Edit Speakers",
+      "text": "This button changes speaker labels for selected segments. It's currently disabled - select one or more segments first, then use this to correct speaker identification.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "segment_btn",
+      "title": "Step 19: Split & Add Segments",
+      "text": "This button splits segments or adds new ones. It's disabled because no segment is selected. Select a segment first - then you can split it at your cursor or add new segments above/below.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "merge_segments_btn",
+      "title": "Step 20: Merge Segments",
+      "text": "This button merges multiple segments into one. It's disabled because you need to select multiple segments first. As you learned earlier, hold Shift and click segments to select a range.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "delete_segment_btn",
+      "title": "Step 21: Delete Segments",
+      "text": "This button deletes selected segments or clears their content. It's disabled because no segments are selected. Select segments first, then use this to delete them or clear their text/timestamps.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "Undo_button",
+      "title": "Step 22: Undo & Redo",
+      "text": "Made a mistake? Use Undo to reverse your last action. The Redo button (next to this) lets you redo undone actions. Both are currently disabled since no edits have been made yet.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_assign_speakers_btn",
+      "title": "Step 23: Assign Speaker Names",
+      "text": "Click this to open a dialog where you can assign real names to speaker labels (e.g., change 'SPEAKER_00' to 'John Smith').",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "text_font",
+      "title": "Step 24: Customize Display",
+      "text": "Adjust the font family and size to make the text comfortable to read. These settings help during long editing sessions.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "change_highlight_color_btn",
+      "title": "Step 25: Highlight Color",
+      "text": "Change the highlight color for selected segments to your preference. This makes it easier to see which segment you're working on.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_save_changes_btn",
+      "title": "Step 26: Save Your Work",
+      "text": "Always save your changes! This exports your edited transcript to a new file. Your work is also auto-saved every 2 minutes.",
+      "validation": {
+        "type": "manual_next"
+      }
+    },
+    {
+      "target_widget": "correction_text_area",
+      "title": "Step 27: Tutorial Complete!",
+      "text": "You're ready to edit! You now know the core features: click to select, Shift+click for ranges, and double-click to edit. Remember, your work is also auto-saved every 2 minutes. This concludes the tutorial.",
+      "type": "passive"
     }
   ]
 }

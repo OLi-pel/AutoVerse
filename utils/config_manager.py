@@ -11,6 +11,8 @@ PROCESSING_OPTIONS_SECTION = 'ProcessingOptions'
 USE_AUTH_TOKEN_OPTION = 'use_auth_token'; TOKEN_OPTION = 'hf_token'
 MAIN_WINDOW_SHOW_TIPS_OPTION = 'main_window_show_tips'; CORRECTION_WINDOW_SHOW_TIPS_OPTION = 'correction_window_show_tips'; STARTUP_SHOW_WELCOME_WIZARD_OPTION = 'show_welcome_wizard'
 HAS_SHOWN_PERFORMANCE_NOTICE_OPTION = 'has_shown_performance_notice'
+TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION = 'transcription_tutorial_completed'; CORRECTION_TUTORIAL_COMPLETED_OPTION = 'correction_tutorial_completed'
+LAST_SEEN_APP_VERSION_OPTION = 'last_seen_app_version'
 
 class ConfigManager:
     def __init__(self, config_path):
@@ -30,10 +32,13 @@ class ConfigManager:
     def _create_default_config_in_memory(self):
         self._ensure_section_exists(TOKEN_SECTION); self.config[TOKEN_SECTION].update({USE_AUTH_TOKEN_OPTION: 'no', TOKEN_OPTION: ''})
         self._ensure_section_exists(UI_PREFERENCES_SECTION); self.config[UI_PREFERENCES_SECTION].update({
-            MAIN_WINDOW_SHOW_TIPS_OPTION: 'yes', 
-            CORRECTION_WINDOW_SHOW_TIPS_OPTION: 'yes', 
+            MAIN_WINDOW_SHOW_TIPS_OPTION: 'yes',
+            CORRECTION_WINDOW_SHOW_TIPS_OPTION: 'yes',
             STARTUP_SHOW_WELCOME_WIZARD_OPTION: 'yes',
-            HAS_SHOWN_PERFORMANCE_NOTICE_OPTION: 'no'
+            HAS_SHOWN_PERFORMANCE_NOTICE_OPTION: 'no',
+            TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION: 'no',
+            CORRECTION_TUTORIAL_COMPLETED_OPTION: 'no',
+            LAST_SEEN_APP_VERSION_OPTION: '0.0.0'
         })
         self._ensure_section_exists(PERFORMANCE_FACTORS_SECTION)
         self._ensure_section_exists(PROCESSING_OPTIONS_SECTION); self.config[PROCESSING_OPTIONS_SECTION].update({
@@ -58,6 +63,12 @@ class ConfigManager:
         try:
             with open(self.path, 'w') as configfile: self.config.write(configfile)
         except IOError: pass
+
+    def get_last_seen_version(self) -> str:
+        return self.get(UI_PREFERENCES_SECTION, LAST_SEEN_APP_VERSION_OPTION, '0.0.0')
+
+    def set_last_seen_version(self, version_str: str):
+        self.set(UI_PREFERENCES_SECTION, LAST_SEEN_APP_VERSION_OPTION, version_str)
 
     def save_huggingface_token(self, token): self.set(TOKEN_SECTION, TOKEN_OPTION, token if token else "")
     def load_huggingface_token(self): return self.get(TOKEN_SECTION, TOKEN_OPTION, '')
@@ -87,6 +98,23 @@ class ConfigManager:
         
     def set_has_shown_performance_notice(self, has_shown: bool):
         self.set(UI_PREFERENCES_SECTION, HAS_SHOWN_PERFORMANCE_NOTICE_OPTION, 'yes' if has_shown else 'no')
+    
+    def get_transcription_tutorial_completed(self) -> bool:
+        return self.get(UI_PREFERENCES_SECTION, TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION, 'no').lower() == 'yes'
+        
+    def set_transcription_tutorial_completed(self, completed: bool):
+        self.set(UI_PREFERENCES_SECTION, TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION, 'yes' if completed else 'no')
+    
+    def get_correction_tutorial_completed(self) -> bool:
+        return self.get(UI_PREFERENCES_SECTION, CORRECTION_TUTORIAL_COMPLETED_OPTION, 'no').lower() == 'yes'
+        
+    def set_correction_tutorial_completed(self, completed: bool):
+        self.set(UI_PREFERENCES_SECTION, CORRECTION_TUTORIAL_COMPLETED_OPTION, 'yes' if completed else 'no')
+    
+    def reset_all_tutorials(self):
+        """Reset all tutorial completion flags - useful for testing"""
+        self.set_transcription_tutorial_completed(False)
+        self.set_correction_tutorial_completed(False)
     
     def save_processing_options(self, options_dict):
       for key, value in options_dict.items():

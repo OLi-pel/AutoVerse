@@ -148,7 +148,7 @@ def run_app():
             self.setWindowTitle("Welcome to AutoVerse!")
             self.choice = None
             self.setModal(True)
-            self.setFixedSize(450, 270)
+            self.setFixedSize(450, 350) # Increased height for the new button
             
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
@@ -163,20 +163,27 @@ def run_app():
             layout.addWidget(welcome_label)
 
             self.transcribe_button = QPushButton(" Transcribe a New Audio/Video File")
-            fallback_transcribe_icon = QIcon(os.path.join(icon_dir, 'folder-open.png'))
-            self.transcribe_button.setIcon(QIcon.fromTheme("document-new", fallback_transcribe_icon))
+            self.transcribe_button.setIcon(QIcon.fromTheme("document-new", QIcon(os.path.join(icon_dir, 'folder-open.png'))))
             self.transcribe_button.setMinimumHeight(60)
             self.transcribe_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
             self.transcribe_button.clicked.connect(self.select_transcribe)
             layout.addWidget(self.transcribe_button)
 
             self.edit_button = QPushButton(" Edit an Existing Transcript")
-            fallback_edit_icon = QIcon(os.path.join(icon_dir, 'pencil.png'))
-            self.edit_button.setIcon(QIcon.fromTheme("document-edit", fallback_edit_icon))
+            self.edit_button.setIcon(QIcon.fromTheme("document-edit", QIcon(os.path.join(icon_dir, 'pencil.png'))))
             self.edit_button.setMinimumHeight(60)
             self.edit_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
             self.edit_button.clicked.connect(self.select_edit)
             layout.addWidget(self.edit_button)
+
+            # --- NEW TUTORIAL BUTTON ---
+            self.tutorial_button = QPushButton(" Start the Interactive Tutorial")
+            self.tutorial_button.setIcon(QIcon(os.path.join(icon_dir, 'interrogation.png')))
+            self.tutorial_button.setMinimumHeight(60)
+            self.tutorial_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; background-color: #0078d7; }")
+            self.tutorial_button.clicked.connect(self.select_tutorial)
+            layout.addWidget(self.tutorial_button)
+            # --- END OF NEW BUTTON ---
 
             layout.addStretch(1)
 
@@ -191,7 +198,11 @@ def run_app():
         def select_edit(self):
             self.choice = 'edit'
             self.accept()
-    
+            
+        def select_tutorial(self):
+            self.choice = 'tutorial'
+            self.accept()
+
     def get_true_application_path():
         if not (getattr(sys, 'frozen', False) and sys.platform == 'darwin'):
             return None
@@ -319,18 +330,15 @@ def run_app():
             self._setup_main_workflow_layout()
             self._setup_nested_collapsible_options()
 
-            self.correction_logic = CorrectionViewLogic(self.window)
+            self.correction_logic = CorrectionViewLogic(self.window, self)
             self.tip_widgets = {
                 self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
             self._setup_fonts()
             self._setup_icons()
 
-            # --- ADD TUTORIAL SYSTEM INITIALIZATION HERE ---
             self.tutorial_overlay = TutorialOverlay(self.window)
-            # --- THIS IS THE FIX ---
-            self.tutorial_manager = TutorialManager(self, self.tutorial_overlay) # Pass 'self' (MainApplication) instead of 'self.window'
-            # --- END OF FIX ---
+            self.tutorial_manager = TutorialManager(self, self.tutorial_overlay)
             self._setup_tutorial_menu()
 
             self.app.aboutToQuit.connect(self.cleanup)
@@ -347,6 +355,14 @@ def run_app():
             self.connect_signals()
             self.load_initial_settings()
             
+            # Defer the startup logic until the constructor is fully finished
+            QTimer.singleShot(0, self.run_startup_logic)
+
+        def run_startup_logic(self):
+            """
+            Handles the logic for the welcome wizard and initial window state.
+            This is run after the constructor is fully complete.
+            """
             if getattr(sys, 'frozen', False):
                 logger.info("Application is frozen, initializing update check.")
                 self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
@@ -354,32 +370,45 @@ def run_app():
                 self.update_checker.start()
             else:
                 logger.info("Application not frozen. Skipping update check.")
+
+            # 1. Check if we need to show the wizard due to an update or user preference
+            last_seen_version = self.config_manager.get_last_seen_version()
+            if Version(constants.APP_VERSION) > Version(last_seen_version):
+                logger.info(f"New version detected ({last_seen_version} -> {constants.APP_VERSION}). Forcing welcome wizard.")
+                self.config_manager.set_show_welcome_wizard(True)
+                self.config_manager.set_last_seen_version(constants.APP_VERSION)
             
+            user_choice = None
             if self.config_manager.get_show_welcome_wizard():
                 welcome_dialog = WelcomeDialog(self.window)
                 if welcome_dialog.exec() == QDialog.Accepted:
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
-                    if welcome_dialog.choice == 'transcribe':
-                        self.window.show()
-                    elif welcome_dialog.choice == 'edit':
-                        self.window.main_tab_widget.setCurrentIndex(1)
-                        self.window.show()
-                else:
+                    user_choice = welcome_dialog.choice
+                else: # Dialog was closed
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
-                    self.window.show()
-            else:
-                self.window.show()
+            
+            # 2. Configure the window state based on the choice (if any)
+            if user_choice == 'edit':
+                self.window.main_tab_widget.setCurrentIndex(1)
+            
+            # 3. Show the main window once, after all decisions are made
+            self.window.show()
+            
+            # 4. Start the tutorial AFTER the window is visible
+            if user_choice == 'tutorial':
+                # Use a QTimer to ensure the main event loop has processed the show() event
+                QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
         
         def _setup_tutorial_menu(self):
-            """Creates the Help menu and adds the tutorial action."""
-            menu_bar = self.window.menuBar()
-            help_menu = menu_bar.addMenu("&Help")
-            
-            start_tutorial_action = help_menu.addAction("Start Transcription Tutorial")
-            start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
-            start_tutorial_action.triggered.connect(
-                lambda: self.tutorial_manager.start_tutorial("transcription")
-            )
+                    """Creates the Help menu and adds the tutorial actions."""
+                    menu_bar = self.window.menuBar()
+                    help_menu = menu_bar.addMenu("&Help")
+                    
+                    start_tutorial_action = help_menu.addAction("Start Tutorial")
+                    start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
+                    start_tutorial_action.triggered.connect(
+                        lambda: self.tutorial_manager.start_tutorial("main_tutorial")
+                    )
         
         def _setup_main_workflow_layout(self):
             transcription_tab = self.window.findChild(QWidget, "tab")
@@ -1271,9 +1300,6 @@ rm -- "$0"
             txt_path = self.last_single_file_result_path
             self.correction_logic.load_files_from_paths(audio_path=audio_path, txt_path=txt_path)
             self.window.main_tab_widget.setCurrentIndex(1)
-
-            if self.tutorial_manager.is_active:
-                self.tutorial_manager.exit_tutorial()
 
     app = QApplication(sys.argv)
     main_app = MainApplication(app)

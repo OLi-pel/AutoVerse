@@ -4,7 +4,7 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QTextCursor
 
 class SelectableTextEdit(QTextEdit):
-    segment_clicked = Signal(int, Qt.KeyboardModifiers)
+    segment_clicked = Signal(int, int)
     edit_requested = Signal(int, int)
     edit_cancelled = Signal()
 
@@ -21,7 +21,9 @@ class SelectableTextEdit(QTextEdit):
             clicked_block_number = cursor.blockNumber()
 
             if clicked_block_number != self.editing_block_number:
-                self.segment_clicked.emit(clicked_block_number, event.modifiers())
+                # --- This is a minor cleanup, not a bug fix ---
+                modifiers_int = event.modifiers().value
+                self.segment_clicked.emit(clicked_block_number, modifiers_int)
                 event.accept()
                 return
             else:
@@ -31,9 +33,11 @@ class SelectableTextEdit(QTextEdit):
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         if event.button() == Qt.LeftButton:
             cursor = self.cursorForPosition(event.pos())
-            self.segment_clicked.emit(cursor.blockNumber(), event.modifiers())
-        else:
-            super().mousePressEvent(event)
+            # --- This is a minor cleanup, not a bug fix ---
+            modifiers_int = event.modifiers().value
+            self.segment_clicked.emit(cursor.blockNumber(), modifiers_int)
+
+        super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         if not self.is_in_edit_mode and event.button() == Qt.LeftButton:
@@ -54,7 +58,7 @@ class SelectableTextEdit(QTextEdit):
         self.editing_block_number = block_number
         self.setReadOnly(False)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-        
+
         block = self.document().findBlockByNumber(block_number)
         if block.isValid():
             cursor = QTextCursor(block)

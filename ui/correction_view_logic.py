@@ -1,8 +1,8 @@
 # ui/correction_view_logic.py
 import logging, sys, os
 from copy import deepcopy
-from PySide6.QtWidgets import (QFileDialog, QMessageBox, QVBoxLayout, QColorDialog, QDialog, 
-                               QDialogButtonBox, QLabel, QLineEdit, QGridLayout, QScrollArea, 
+from PySide6.QtWidgets import (QFileDialog, QMessageBox, QVBoxLayout, QColorDialog, QDialog,
+                               QDialogButtonBox, QLabel, QLineEdit, QGridLayout, QScrollArea,
                                QWidget, QComboBox, QRadioButton, QHBoxLayout, QPushButton,
                                QSizePolicy)
 from PySide6.QtCore import QObject, Slot, Qt, QSize, QTimer
@@ -19,9 +19,10 @@ from utils import tips_data
 logger = logging.getLogger(__name__)
 
 class CorrectionViewLogic(QObject):
-    def __init__(self, main_window):
+    def __init__(self, main_window, main_app=None):
         super().__init__()
         self.main_window = main_window
+        self.main_app = main_app
         self.segment_manager = SegmentManager()
         self.audio_player = AudioPlayer()
         self.undo_manager = UndoManager()
@@ -38,7 +39,7 @@ class CorrectionViewLogic(QObject):
         self.highlight_format = QTextCharFormat()
         self.selection_format = QTextCharFormat()
         self.multi_selection_format = QTextCharFormat()
-        
+
         self.set_highlight_color(QColor(100, 149, 237))
         self.timeline = WaveformFrame()
         old_frame = self.main_window.correction_timeline_frame
@@ -49,7 +50,7 @@ class CorrectionViewLogic(QObject):
             item = layout.takeAt(0)
             if item and item.widget(): item.widget().deleteLater()
         layout.addWidget(self.timeline)
-        
+
         self.tip_widgets = {
             self.main_window.correction_browse_transcription_btn: "correction_browse_transcription_btn",
             self.main_window.correction_browse_audio_btn: "correction_browse_audio_btn",
@@ -80,7 +81,7 @@ class CorrectionViewLogic(QObject):
         self.set_controls_enabled(False)
         self._update_text_area_font()
         self._update_undo_redo_buttons_state(False, False)
-        
+
         # Set up automatic saving
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self._auto_save)
@@ -110,12 +111,12 @@ class CorrectionViewLogic(QObject):
             textarea.segment_clicked.connect(self.on_segment_clicked)
             textarea.edit_requested.connect(self.on_edit_requested)
             textarea.edit_cancelled.connect(lambda: self.exit_edit_mode(save=False))
-            
+
         self.main_window.findChild(QPushButton, "Undo_button").clicked.connect(self.undo_manager.undo)
         self.main_window.findChild(QPushButton, "Redo_Button").clicked.connect(self.undo_manager.redo)
         self.undo_manager.state_changed.connect(self._update_undo_redo_buttons_state)
         self.undo_manager.history_changed.connect(self.render_segments_to_textarea)
-        
+
         self.main_window.correction_text_edit_btn.clicked.connect(self.on_edit_button_clicked)
         self.main_window.edit_speaker_btn.clicked.connect(self.on_edit_speaker_clicked)
         self.main_window.correction_timestamp_edit_btn.clicked.connect(self.on_timestamp_edit_button_clicked)
@@ -137,19 +138,19 @@ class CorrectionViewLogic(QObject):
         self.main_window.text_font_combo.currentTextChanged.connect(self._update_text_area_font)
         self.main_window.font_size_combo.currentTextChanged.connect(self._update_text_area_font)
         self.connect_audio_player_signals()
-        
+
     @Slot(bool, bool)
     def _update_undo_redo_buttons_state(self, can_undo, can_redo):
         self.main_window.findChild(QPushButton, "Undo_button").setEnabled(can_undo)
         self.main_window.findChild(QPushButton, "Redo_Button").setEnabled(can_redo)
-        
+
     def _execute_command(self, before_segments, before_map, action_func):
         action_func()
         after_segments = deepcopy(self.segment_manager.segments)
         after_map = deepcopy(self.segment_manager.speaker_map)
         command = ModifyStateCommand(self.segment_manager, self, before_segments, after_segments, before_map, after_map)
         self.undo_manager.add_command(command)
-        
+
     @Slot()
     def _update_text_area_font(self):
         font_family = self.main_window.text_font_combo.currentText(); font_size_str = self.main_window.font_size_combo.currentText()
@@ -166,8 +167,8 @@ class CorrectionViewLogic(QObject):
             prepared_device_name = self.audio_player.get_prepared_device_name()
             logger.info(f"Play requested. Prepared for: '{prepared_device_name}', Current: '{current_device_name}'")
             if current_device_name and prepared_device_name and current_device_name != prepared_device_name:
-                QMessageBox.information(self.main_window, "Audio Device Changed", 
-                                        "Your default audio device has changed.\n\nThe audio files will now be reloaded to match the new device. Please press play again.")
+                QMessageBox.information(self.main_window, "Audio Device Changed",
+                                        "Your default audio device has changed.\\n\\nThe audio files will now be reloaded to match the new device. Please press play again.")
                 self._recover_audio_player()
                 return
             self.audio_player.play()
@@ -178,32 +179,55 @@ class CorrectionViewLogic(QObject):
     def load_files(self): self._safe_action(self._load_files_action)
 
     def _load_files_action(self):
-        txt = self.main_window.correction_transcription_entry.text()
-        audio = self.main_window.correction_audio_entry.text()
-        if not txt or not audio: return
-        
-        # Stop any existing auto-save before loading new files
-        self._stop_auto_save()
-        
-        self.current_audio_path = audio; self.current_txt_path = txt
-        
-        try:
-            self.undo_manager.clear(); self.select_segment(None)
-            if self.audio_player: self.audio_player.destroy()
-            self.audio_player = AudioPlayer(); self.connect_audio_player_signals()
-            with open(txt, 'r', encoding='utf-8') as f: lines = f.readlines()
-            self.segment_manager.parse_transcription_lines(lines); self.render_segments_to_textarea()
-            if not self.audio_player.load_file(audio): raise IOError("Audio player failed to load file.")
-            self.timeline.set_waveform_data(self.audio_player.get_normalized_waveform()); self.timeline.set_duration(self.audio_player.get_duration())
-            self.update_audio_progress(0); self.set_controls_enabled(True); self.update_play_button_state(playing=False)
+            txt = self.main_window.correction_transcription_entry.text()
+            audio = self.main_window.correction_audio_entry.text()
+            if not txt or not audio: return
             
-            # Start auto-save timer when files are successfully loaded
-            self._start_auto_save()
-        except Exception as e:
-            logger.exception("Load error."); self.set_controls_enabled(False); QMessageBox.critical(self.main_window, "Load Error", str(e))
-            # Stop auto-save if loading failed
             self._stop_auto_save()
-    
+            
+            self.current_audio_path = audio; self.current_txt_path = txt
+            
+            try:
+                self.undo_manager.clear(); self.select_segment(None)
+                if self.audio_player: self.audio_player.destroy()
+                self.audio_player = AudioPlayer(); self.connect_audio_player_signals()
+                with open(txt, 'r', encoding='utf-8') as f: lines = f.readlines()
+                self.segment_manager.parse_transcription_lines(lines); self.render_segments_to_textarea()
+                if not self.audio_player.load_file(audio): raise IOError("Audio player failed to load file.")
+                self.timeline.set_waveform_data(self.audio_player.get_normalized_waveform()); self.timeline.set_duration(self.audio_player.get_duration())
+                self.update_audio_progress(0); self.set_controls_enabled(True); self.update_play_button_state(playing=False)
+                
+                self._start_auto_save()
+                
+                # --- THE FIX: REMOVED THE CALL TO THE NOW-DELETED METHOD ---
+                # self._offer_tutorial_if_first_time()
+                # --- END OF FIX ---
+            except Exception as e:
+                logger.exception("Load error."); self.set_controls_enabled(False); QMessageBox.critical(self.main_window, "Load Error", str(e))
+                self._stop_auto_save()
+                
+    def _offer_tutorial_if_first_time(self):
+        """Offer to start the correction tutorial for first-time users"""
+        if self.main_app and hasattr(self.main_app, 'tutorial_manager') and hasattr(self.main_app, 'config_manager'):
+            if self.main_app.tutorial_manager.should_auto_start_tutorial("correction"):
+                from PySide6.QtWidgets import QMessageBox
+                from PySide6.QtCore import QTimer
+
+                reply = QMessageBox.question(
+                    self.main_window,
+                    "Correction Tutorial",
+                    "Welcome to the Correction Window! Would you like to take a quick tutorial to learn about all the editing features?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+
+                if reply == QMessageBox.Yes:
+                    # Delay tutorial start to ensure UI is fully loaded
+                    QTimer.singleShot(300, lambda: self.main_app.tutorial_manager.start_tutorial("correction"))
+                else:
+                    # Mark as completed so we don't ask again
+                    self.main_app.config_manager.set_correction_tutorial_completed(True)
+
     # ... The rest of the file is unchanged ...
     @Slot()
     def on_delete_segment_clicked(self):
@@ -221,7 +245,7 @@ class CorrectionViewLogic(QObject):
                 for seg_id in sorted(target_ids, key=self.segment_manager.get_segment_index, reverse=True): self.segment_manager.remove_segment(seg_id)
                 self._clear_all_selections(); confirmed_action = True
         if confirmed_action: self._execute_command(before_segs, before_map, lambda: self.render_segments_to_textarea())
-            
+
     @Slot()
     def on_add_split_button_clicked(self):
         before_segs = deepcopy(self.segment_manager.segments); before_map = deepcopy(self.segment_manager.speaker_map); action_performed = False
@@ -237,7 +261,7 @@ class CorrectionViewLogic(QObject):
                 self.exit_edit_mode(save=False); action_performed = True
         elif self.selected_segment_id is not None:
             result = self._open_add_split_dialog(is_split_mode=False)
-            if result: 
+            if result:
                 new_id = self.segment_manager.add_segment(result, self.selected_segment_id, result['position'])
                 if new_id: self._clear_all_selections(); self.select_segment(new_id); action_performed = True
         if action_performed: self._execute_command(before_segs, before_map, self.render_segments_to_textarea)
@@ -263,7 +287,7 @@ class CorrectionViewLogic(QObject):
             if not is_split_mode: result['position'] = 'above' if radio_above.isChecked() else 'below'
             return result
         return None
-        
+
     def render_segments_to_textarea(self):
         scroll_bar = self.main_window.correction_text_area.verticalScrollBar(); original_scroll_position = scroll_bar.value()
         current_selection_id = self.selected_segment_id; current_multi_ids = list(self.multi_selection_ids)
@@ -281,14 +305,17 @@ class CorrectionViewLogic(QObject):
                 spk_start_pos = cursor.position(); spk_str = f"{self.segment_manager.speaker_map.get(speaker_label, speaker_label)}: "
                 cursor.insertText(spk_str, self.normal_format); seg['component_positions']['speaker'] = (spk_start_pos, cursor.position())
             text_start_pos = cursor.position(); cursor.insertText(seg['text'], self.normal_format); seg['component_positions']['text'] = (text_start_pos, cursor.position())
-            cursor.insertText('\n', self.normal_format); seg['doc_positions'] = (seg['doc_positions'][0], cursor.position())
+            # --- THIS IS THE FIX for the rendering bug ---
+            cursor.insertText('\n', self.normal_format)
+            # --- END OF FIX ---
+            seg['doc_positions'] = (seg['doc_positions'][0], cursor.position())
         self._clear_all_selections(update_buttons=False)
         if current_selection_id and self.segment_manager.get_segment_by_id(current_selection_id): self.select_segment(current_selection_id)
         if current_multi_ids:
             self.multi_selection_ids = [mid for mid in current_multi_ids if self.segment_manager.get_segment_by_id(mid)]
             for mid in self.multi_selection_ids: self._apply_format(mid, self.multi_selection_format)
         scroll_bar.setValue(original_scroll_position); self.update_edit_buttons_state()
-            
+
     def update_edit_buttons_state(self):
         is_text_editing = self.editing_segment_id is not None; is_ts_editing = self.timestamp_editing_segment_id is not None
         is_selected = self.selected_segment_id is not None; is_multi_selected = len(self.multi_selection_ids) > 0
@@ -334,8 +361,8 @@ class CorrectionViewLogic(QObject):
         offset = 1.0 if self.timestamp_editing_segment_id is not None else 5.0
         if not is_forward: offset = -offset
         self.seek_by_offset(offset)
-        
-    @Slot(int, Qt.KeyboardModifiers)
+
+    @Slot(int, int)
     def on_segment_clicked(self, block_number, modifiers):
         is_click_on_valid_segment = 0 <= block_number < len(self.segment_manager.segments)
         if self.editing_segment_id or self.timestamp_editing_segment_id:
@@ -346,7 +373,11 @@ class CorrectionViewLogic(QObject):
             self.update_edit_buttons_state(); return
         if not is_click_on_valid_segment: self._clear_all_selections(); self.update_edit_buttons_state(); return
         segment_id = self.segment_manager.segments[block_number]['id']
-        is_shift_pressed = (modifiers & Qt.KeyboardModifier.ShiftModifier) == Qt.KeyboardModifier.ShiftModifier
+
+        # --- THIS IS THE CORRECTED LINE ---
+        is_shift_pressed = bool(modifiers & Qt.KeyboardModifier.ShiftModifier.value)
+        # --- END OF CORRECTION ---
+
         if is_shift_pressed:
             if self.selected_segment_id and self.selected_segment_id != segment_id:
                  start_index, end_index = self.segment_manager.get_segment_index(self.selected_segment_id), block_number
@@ -363,7 +394,7 @@ class CorrectionViewLogic(QObject):
 
     def _clear_all_selections(self, update_buttons=True):
         self._clear_selection()
-        for seg_id in self.multi_selection_ids: 
+        for seg_id in self.multi_selection_ids:
             if self.segment_manager.get_segment_by_id(seg_id): self._apply_format(seg_id, self.normal_format)
         self.multi_selection_ids.clear()
         if update_buttons: self.update_edit_buttons_state()
@@ -386,42 +417,53 @@ class CorrectionViewLogic(QObject):
                 if new_target_id: self.select_segment(new_target_id)
             self._execute_command(before_segs, before_map, action)
         self.update_edit_buttons_state()
-        
+
     @Slot()
     def on_timestamp_edit_button_clicked(self):
         if self.timestamp_editing_segment_id: self.exit_timestamp_edit_mode(save=False)
         elif self.selected_segment_id: self.enter_timestamp_edit_mode(self.selected_segment_id)
-        
+
     def _apply_format(self, segment_id, text_format, clear_first=False):
         segment = self.segment_manager.get_segment_by_id(segment_id)
         if segment and 'doc_positions' in segment:
+            # Temporarily make the text area editable for formatting
+            was_readonly = self.main_window.correction_text_area.isReadOnly()
+            if was_readonly:
+                self.main_window.correction_text_area.setReadOnly(False)
+
             cursor = QTextCursor(self.main_window.correction_text_area.document())
             start, end = segment['doc_positions']
-            cursor.setPosition(start); cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 1); cursor.setCharFormat(text_format)
-            
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 1)
+            cursor.setCharFormat(text_format)
+
+            # Restore read-only state
+            if was_readonly:
+                self.main_window.correction_text_area.setReadOnly(True)
+
     def set_highlight_color(self, color): self.highlight_format.setBackground(color); self.selection_format.setBackground(color.darker(150)); self.multi_selection_format.setBackground(color.lighter(130))
     def _apply_selection(self, segment_id): self._apply_format(segment_id, self.selection_format)
     def _apply_highlight(self, segment_id):
         if segment_id != self.selected_segment_id and not self.editing_segment_id and segment_id not in self.multi_selection_ids:
             self._apply_format(segment_id, self.highlight_format)
-            
+
     def _clear_selection(self):
-        if self.selected_segment_id: 
+        if self.selected_segment_id:
             revert_format = self.highlight_format if self.selected_segment_id == self.current_highlighted_segment_id else self.normal_format
             if self.selected_segment_id in self.multi_selection_ids: revert_format = self.multi_selection_format
             self._apply_format(self.selected_segment_id, revert_format)
         self.selected_segment_id = None
-        
+
     def _clear_highlight(self):
-        if self.current_highlighted_segment_id: 
+        if self.current_highlighted_segment_id:
             revert_format = self.selection_format if self.current_highlighted_segment_id == self.selected_segment_id else self.normal_format
             if self.current_highlighted_segment_id in self.multi_selection_ids: revert_format = self.multi_selection_format
             self._apply_format(self.current_highlighted_segment_id, revert_format)
         self.current_highlighted_segment_id = None
 
     @Slot()
-    def on_edit_speaker_clicked(self): 
+    def on_edit_speaker_clicked(self):
         target_ids = [self.selected_segment_id] if self.selected_segment_id and self.selected_segment_id not in self.multi_selection_ids else list(self.multi_selection_ids)
         if not target_ids: QMessageBox.information(self.main_window, "No Selection", "Please select segment(s) to change speaker."); return
         first_segment = self.segment_manager.get_segment_by_id(target_ids[0])
@@ -432,7 +474,7 @@ class CorrectionViewLogic(QObject):
         before_segs = deepcopy(self.segment_manager.segments); before_map = deepcopy(self.segment_manager.speaker_map); dialog = QDialog(self.main_window)
         dialog.setWindowTitle(f"Change Speaker for {len(target_ids)} Segment(s)"); layout = QGridLayout(dialog); layout.setSpacing(10)
         layout.addWidget(QLabel("Assign a speaker:"), 0, 0, 1, 2); combo = QComboBox(); combo.addItem("(No Speaker)", constants.NO_SPEAKER_LABEL)
-        for speaker_id in sorted(list(self.segment_manager.unique_speaker_labels)): 
+        for speaker_id in sorted(list(self.segment_manager.unique_speaker_labels)):
             display_name = self.segment_manager.speaker_map.get(speaker_id, speaker_id); combo.addItem(f"{display_name} ({speaker_id})", speaker_id)
         layout.addWidget(combo, 1, 0, 1, 2); combo.setCurrentIndex(combo.findData(segment.get("speaker_raw", constants.NO_SPEAKER_LABEL)))
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); delete_speaker_button = QPushButton(icon=self.main_window.delete_segment_btn.icon())
@@ -444,7 +486,7 @@ class CorrectionViewLogic(QObject):
             self._execute_command(before_segs, before_map, action); dialog.accept()
         button_box.accepted.connect(lambda: on_accept(combo.currentData())); button_box.rejected.connect(dialog.reject)
         delete_speaker_button.clicked.connect(lambda: on_accept(constants.NO_SPEAKER_LABEL)); layout.addWidget(delete_speaker_button, 2, 0, Qt.AlignLeft); layout.addWidget(button_box, 2, 1, Qt.AlignRight); dialog.exec()
-            
+
     def select_segment_by_block(self, block_number):
         if 0 <= block_number < len(self.segment_manager.segments): self.select_segment(self.segment_manager.segments[block_number]['id'])
 
@@ -458,7 +500,7 @@ class CorrectionViewLogic(QObject):
             if 'timestamp' in positions and positions['timestamp'][0] <= abs_pos < positions['timestamp'][1]: self.enter_timestamp_edit_mode(segment['id']); return
         if self.editing_segment_id and self.editing_segment_id != segment['id']: self.exit_edit_mode(save=True)
         self.enter_edit_mode(segment['id'], position_in_block)
-        
+
     def enter_edit_mode(self, segment_id, click_pos_in_block: int = 0):
         if self.editing_segment_id == segment_id or self.timestamp_editing_segment_id: return
         self.exit_all_edit_modes(save=True); segment_obj = self.segment_manager.get_segment_by_id(segment_id)
@@ -496,62 +538,67 @@ class CorrectionViewLogic(QObject):
         elif self.selected_segment_id: self.enter_edit_mode(self.selected_segment_id)
 
     def select_segment(self, segment_id):
-        if self.selected_segment_id and self.selected_segment_id in self.multi_selection_ids: self._apply_format(self.selected_segment_id, self.multi_selection_format)
-        else: self._clear_selection()
-        if segment_id: self._apply_selection(segment_id); self.selected_segment_id = segment_id
-        else: self.selected_segment_id = None
+        if self.selected_segment_id and self.selected_segment_id in self.multi_selection_ids:
+            self._apply_format(self.selected_segment_id, self.multi_selection_format)
+        else:
+            self._clear_selection()
+        if segment_id:
+            self._apply_selection(segment_id)
+            self.selected_segment_id = segment_id
+        else:
+            self.selected_segment_id = None
         self.update_edit_buttons_state()
-        
+
     @Slot(str, float)
     def on_timestamp_bar_dragged(self, bar_name, new_time):
         if bar_name == "start": self.timeline.set_start_bar_position(new_time)
         elif bar_name == "playhead": self.audio_player.set_position(new_time)
-        
+
     @Slot()
-    def on_save_timestamp_clicked(self): 
+    def on_save_timestamp_clicked(self):
         before_segs = deepcopy(self.segment_manager.segments); before_map = deepcopy(self.segment_manager.speaker_map)
         self._execute_command(before_segs, before_map, lambda: self.exit_timestamp_edit_mode(save=True))
-        
-    def exit_all_edit_modes(self, save=False): 
+
+    def exit_all_edit_modes(self, save=False):
         if self.editing_segment_id: self.exit_edit_mode(save)
         if self.timestamp_editing_segment_id: self.exit_timestamp_edit_mode(False)
-        
+
     def _safe_action(self, action_func, *args): self.exit_all_edit_modes(save=True); action_func(*args)
     @Slot()
     def save_changes(self): self._safe_action(self._save_changes_action)
     def _save_changes_action(self):
-        if not self.segment_manager.segments or not self.current_txt_path: 
+        if not self.segment_manager.segments or not self.current_txt_path:
             return
-        
+
         try:
             save_data = self.segment_manager.format_segments_for_saving(True, True)
-            with open(self.current_txt_path, 'w', encoding='utf-8') as f: 
-                f.write('\n'.join(save_data))
+            with open(self.current_txt_path, 'w', encoding='utf-8') as f:
+                f.write('\\n'.join(save_data))
             logger.info(f"Transcription saved to {self.current_txt_path}")
             # Show a brief status message instead of a popup
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage(f"Saved to {os.path.basename(self.current_txt_path)}", 3000)
-        except IOError as e: 
+        except IOError as e:
             logger.error(f"Save error: {e}")
             QMessageBox.critical(self.main_window, "Save Error", f"Could not save file: {e}")
-    
+
     def _auto_save(self):
         """Automatically save the current document if there are changes."""
         if not self.segment_manager.segments or not self.current_txt_path:
             return
-            
+
         try:
             save_data = self.segment_manager.format_segments_for_saving(True, True)
-            with open(self.current_txt_path, 'w', encoding='utf-8') as f: 
-                f.write('\n'.join(save_data))
+            with open(self.current_txt_path, 'w', encoding='utf-8') as f:
+                f.write('\\n'.join(save_data))
             logger.debug(f"Auto-saved transcription to {self.current_txt_path}")
             # Show a subtle status message for auto-save
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage("Auto-saved", 1500)
-        except IOError as e: 
+        except IOError as e:
             logger.warning(f"Auto-save failed: {e}")
             # Don't show error popup for auto-save failures, just log it
-    
+
     def _start_auto_save(self):
         """Start the automatic save timer."""
         if self.current_txt_path and self.segment_manager.segments:
@@ -562,13 +609,13 @@ class CorrectionViewLogic(QObject):
             # Show status message to user
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage(f"Auto-save enabled (every {minutes} min)", 5000)
-    
+
     def _stop_auto_save(self):
         """Stop the automatic save timer."""
         self.auto_save_enabled = False
         self.auto_save_timer.stop()
         logger.debug("Auto-save stopped")
-    
+
     def set_auto_save_interval(self, minutes):
         """Set the auto-save interval in minutes."""
         self.auto_save_interval = minutes * 60 * 1000  # Convert to milliseconds
@@ -577,38 +624,38 @@ class CorrectionViewLogic(QObject):
             self._stop_auto_save()
             self._start_auto_save()
             logger.info(f"Auto-save interval changed to {minutes} minutes")
-    
+
     def force_save(self):
         """Manually trigger a save (useful for testing or after significant changes)."""
         if self.current_txt_path and self.segment_manager.segments:
             self._auto_save()
             return True
         return False
-    
+
     def cleanup(self):
         """Clean up resources when the correction window is closed."""
         if hasattr(self, '_cleaned_up') and self._cleaned_up:
             return
         self._cleaned_up = True
-        
+
         logger.debug("Cleaning up correction view logic")
         self._stop_auto_save()
         if hasattr(self, 'audio_player') and self.audio_player:
             self.audio_player.destroy()
             self.audio_player = None
-            
+
     @Slot()
     def browse_transcription_file(self): self._safe_action(self._browse_transcription_file_action)
     def _browse_transcription_file_action(self):
         path, _ = QFileDialog.getOpenFileName(self.main_window, "Select Transcription", "", "Text (*.txt)");
         if path: self.main_window.correction_transcription_entry.setText(path)
-        
+
     @Slot()
     def browse_audio_file(self): self._safe_action(self._browse_audio_file_action)
     def _browse_audio_file_action(self):
         path, _ = QFileDialog.getOpenFileName(self.main_window, "Select Audio or Video File", "", "All Media Files (*.wav *.mp3 *.m4a *.mp4 *.mov)");
         if path: self.main_window.correction_audio_entry.setText(path)
-        
+
     @Slot()
     def open_speaker_assignment_dialog(self): self._safe_action(self._open_speaker_assignment_dialog_action)
     def _open_speaker_assignment_dialog_action(self):
@@ -637,7 +684,7 @@ class CorrectionViewLogic(QObject):
         new_color=QColorDialog.getColor(self.highlight_format.background().color(), self.main_window, "Select Highlight Color");
         if new_color.isValid(): self.set_highlight_color(new_color);
         if self.current_highlighted_segment_id: self._apply_highlight(self.current_highlighted_segment_id)
-        
+
     def set_controls_enabled(self, enabled):
         widgets=[self.main_window.correction_play_pause_btn, self.main_window.correction_rewind_btn, self.main_window.correction_forward_btn, self.main_window.correction_assign_speakers_btn, self.main_window.correction_save_changes_btn, self.main_window.correction_timeline_frame, self.main_window.change_highlight_color_btn]
         for w in widgets:
@@ -646,14 +693,14 @@ class CorrectionViewLogic(QObject):
             for btn in [self.main_window.correction_text_edit_btn, self.main_window.edit_speaker_btn, self.main_window.correction_timestamp_edit_btn, self.main_window.save_timestamp_btn, self.main_window.delete_segment_btn, self.main_window.segment_btn, self.main_window.merge_segments_btn]:
                  if btn: btn.setEnabled(False)
         else: self.update_edit_buttons_state()
-             
+
     @Slot(bool)
     def update_play_button_state(self, playing):
         if playing: self.main_window.correction_play_pause_btn.setText("Pause"); self.main_window.correction_play_pause_btn.setIcon(self.main_window.icon_pause)
         else: self.main_window.correction_play_pause_btn.setText("Play"); self.main_window.correction_play_pause_btn.setIcon(self.main_window.icon_play)
-        
+
     @Slot()
-    def on_audio_finished(self): 
+    def on_audio_finished(self):
         self._clear_highlight(); self.current_highlighted_segment_id=None
         if self.selected_segment_id: self._apply_selection(self.selected_segment_id)
 
@@ -684,22 +731,22 @@ class CorrectionViewLogic(QObject):
                 if old_id in self.multi_selection_ids: revert_format = self.multi_selection_format
                 self._apply_format(old_id, revert_format)
             if active_id: self._apply_highlight(active_id)
-    
+
     @Slot()
     def seek_by_offset(self, offset_seconds): self.audio_player.seek(offset_seconds)
     @Slot(float)
     def seek_to_percentage(self, percentage):
         if self.audio_player.get_duration() > 0: self.audio_player.set_position(percentage * self.audio_player.get_duration())
-        
+
     @Slot(str, str)
     def load_files_from_paths(self, audio_path: str, txt_path: str):
         if not os.path.exists(audio_path) or not os.path.exists(txt_path):
-            QMessageBox.critical(self.main_window, "File Not Found", f"Could not find files:\n{audio_path}\n{txt_path}"); return
+            QMessageBox.critical(self.main_window, "File Not Found", f"Could not find files:\\n{audio_path}\\n{txt_path}"); return
         self.current_audio_path = audio_path; self.current_txt_path = txt_path
         self.main_window.correction_audio_entry.setText(audio_path)
         self.main_window.correction_transcription_entry.setText(txt_path)
         self.load_files()
-        
+
     @Slot()
     def _recover_audio_player(self):
         logger.warning("Audio player is desynced. Attempting automatic recovery.")
@@ -710,6 +757,6 @@ class CorrectionViewLogic(QObject):
         self.load_files_from_paths(self.current_audio_path, self.current_txt_path)
         self.audio_player.set_position(current_time)
         logger.info("Audio player recovery complete.")
-        
-    def format_time(self, seconds): 
+
+    def format_time(self, seconds):
         m, s = divmod(abs(seconds), 60); return f"{int(m):02d}:{s:06.3f}"

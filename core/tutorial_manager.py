@@ -45,6 +45,9 @@ class TutorialManager:
         if self.is_active: return
         if tutorial_name not in self.tutorials: return
         
+        # --- THIS IS THE NEW LINE TO ENSURE CORRECT STARTING TAB ---
+        self.main_app.window.main_tab_widget.setCurrentIndex(0)
+        
         # Reset UI to initial state before starting tutorial
         self._reset_ui_for_tutorial()
         
@@ -95,12 +98,13 @@ class TutorialManager:
         validation_type = validation.get("type")
         is_action_step = validation_type in ["action_click", "file_selected"]
         is_passive = step_data.get("type") == "passive"
+        allow_interaction = validation_type == "interactive_widget" and validation.get("allow_interaction", False)
 
         self.overlay.show_step(
             target_widget=self.current_target_widget,
             title=step_data.get("title", ""), text=step_data.get("text", ""),
             current_step=index + 1, total_steps=len(self.current_tutorial),
-            is_action_step=is_action_step
+            is_action_step=is_action_step, allow_interaction=allow_interaction
         )
         
         # Ensure overlay is visible and force a repaint
@@ -150,6 +154,9 @@ class TutorialManager:
         elif validation_type == "manual_next":
             # Just enable the next button - no validation required
             self.overlay.next_button.setEnabled(True)
+        elif validation_type == "interactive_widget":
+            # Enable the next button for interactive widgets
+            self.overlay.next_button.setEnabled(True)
 
     def _on_target_clicked(self):
         if not self.current_target_widget: return
@@ -175,8 +182,20 @@ class TutorialManager:
                     self.next_step()
             else:
                 logger.error(f"Action '{action_name}' not found on main app.")
+        elif validation_type == "interactive_widget":
+            # For interactive widgets, don't intercept the click - let it pass through
+            # The overlay should allow interaction with the target widget
+            logger.info(f"Interactive widget clicked: {self.current_target_widget.__class__.__name__}")
+            # Don't advance automatically - user needs to click Next when ready
+            return
         else:
-            self.current_target_widget.click()
+            # Only try to click if the widget has a click method (buttons, etc.)
+            if hasattr(self.current_target_widget, 'click'):
+                self.current_target_widget.click()
+            else:
+                # For non-clickable widgets, just advance to next step
+                logger.info(f"Widget {self.current_target_widget.__class__.__name__} is not clickable, advancing to next step")
+                self.next_step()
 
     def next_step(self):
         self._clear_validation()
@@ -185,6 +204,18 @@ class TutorialManager:
             self.show_step(self.current_step_index)
         else:
             self.exit_tutorial()
+    
+    def should_auto_start_tutorial(self, tutorial_name):
+        """Check if a tutorial should be automatically started for first-time users"""
+        if not hasattr(self.main_app, 'config_manager'):
+            return False
+            
+        if tutorial_name == "transcription":
+            return not self.main_app.config_manager.get_transcription_tutorial_completed()
+        elif tutorial_name == "correction":
+            return not self.main_app.config_manager.get_correction_tutorial_completed()
+        
+        return False
 
     def prev_step(self):
         self._clear_validation()
@@ -232,12 +263,26 @@ class TutorialManager:
         logger.info(f"Tutorial resumed at step {step}.")
 
     def exit_tutorial(self):
+        # Mark tutorial as completed if we reached the end
+        if self.current_tutorial_name and self.current_tutorial and self.current_step_index >= len(self.current_tutorial) - 1:
+            self._mark_tutorial_completed(self.current_tutorial_name)
+        
         self._clear_validation()
         self.current_tutorial = None
         self.current_step_index = -1
         self.is_active = False
         self.paused_state = None
         self.overlay.hide()
+    
+    def _mark_tutorial_completed(self, tutorial_name):
+        """Mark a tutorial as completed in the config"""
+        if hasattr(self.main_app, 'config_manager'):
+            if tutorial_name == "transcription":
+                self.main_app.config_manager.set_transcription_tutorial_completed(True)
+                logger.info("Transcription tutorial marked as completed")
+            elif tutorial_name == "correction":
+                self.main_app.config_manager.set_correction_tutorial_completed(True)
+                logger.info("Correction tutorial marked as completed")
 
     def _clear_validation(self):
         if self.active_connection:

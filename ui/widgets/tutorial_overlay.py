@@ -1,7 +1,7 @@
 # ui/widgets/tutorial_overlay.py
 
 from PySide6.QtWidgets import QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QFrame, QApplication
-from PySide6.QtCore import Qt, QRect, QPoint, Signal
+from PySide6.QtCore import Qt, QRect, QPoint, Signal, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath, QMouseEvent
 
 class TutorialOverlay(QWidget):
@@ -18,6 +18,7 @@ class TutorialOverlay(QWidget):
 
         self.target_widget = None
         self.highlight_rect = QRect()
+        self.allow_interaction = False
 
         self.panel = QFrame(self)
         self.panel.setFrameStyle(QFrame.Box | QFrame.StyledPanel)
@@ -46,7 +47,7 @@ class TutorialOverlay(QWidget):
         self.prev_button = QPushButton("Previous")
         self.next_button = QPushButton("Next")
         self.exit_button = QPushButton("Exit Tutorial")
-        
+
         button_style = """
             QPushButton { background-color: #555; border: 1px solid #666; color: #ddd; padding: 8px 12px; border-radius: 4px; }
             QPushButton:hover { background-color: #666; }
@@ -56,7 +57,7 @@ class TutorialOverlay(QWidget):
         self.prev_button.setStyleSheet(button_style)
         self.next_button.setStyleSheet(button_style + "QPushButton { background-color: #0078d7; }")
         self.exit_button.setStyleSheet(button_style)
-        
+
         button_layout.addWidget(self.exit_button, 0, Qt.AlignLeft)
         button_layout.addStretch()
         button_layout.addWidget(self.prev_button)
@@ -67,16 +68,14 @@ class TutorialOverlay(QWidget):
         panel_layout.addSpacing(10)
         panel_layout.addWidget(self.step_label)
         panel_layout.addLayout(button_layout)
-        
+
         self.next_button.clicked.connect(self.next_clicked.emit)
         self.prev_button.clicked.connect(self.prev_clicked.emit)
         self.exit_button.clicked.connect(self.exit_clicked.emit)
 
-    def show_step(self, target_widget, title, text, current_step, total_steps, is_action_step=False):
-        print(f"TutorialOverlay.show_step called for step {current_step}: {title}")
-        print(f"Target widget: {target_widget}, is_action_step: {is_action_step}")
-        
+    def show_step(self, target_widget, title, text, current_step, total_steps, is_action_step=False, allow_interaction=False):
         self.target_widget = target_widget
+        self.allow_interaction = allow_interaction
         self.title_label.setText(title)
         self.instruction_label.setText(text)
         self.step_label.setText(f"Step {current_step} of {total_steps}")
@@ -84,14 +83,17 @@ class TutorialOverlay(QWidget):
         self.next_button.setText("Finish" if current_step == total_steps else "Next")
 
         is_passive = not is_action_step and not self.target_widget
-        self.next_button.setEnabled(is_passive)
-        self.next_button.setVisible(not is_action_step)
-        if is_action_step:
+        self.next_button.setEnabled(is_passive or allow_interaction)
+        self.next_button.setVisible(not is_action_step or allow_interaction)
+
+        # --- THIS IS THE FIX ---
+        if is_action_step and not allow_interaction:
             self.step_label.setText(f"Step {current_step} of {total_steps}\n(Click the highlighted button to continue)")
-        
-        print(f"About to call self.update() for step {current_step}")
+        elif allow_interaction:
+            self.step_label.setText(f"Step {current_step} of {total_steps}\n(Try interacting with the highlighted area, then click Next)")
+        # --- END OF FIX ---
+
         self.update()
-        print(f"self.update() completed for step {current_step}")
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -139,8 +141,43 @@ class TutorialOverlay(QWidget):
         if self.panel.geometry().contains(event.pos()):
             super().mousePressEvent(event)
             return
+
         if self.highlight_rect.contains(event.pos()):
-            self.target_clicked.emit()
+            if self.allow_interaction:
+                self.pass_through_event(event)
+            else:
+                self.target_clicked.emit()
             event.accept()
             return
+
         event.accept()
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self.allow_interaction and self.highlight_rect.contains(event.pos()):
+            self.pass_through_event(event)
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        if self.allow_interaction and self.highlight_rect.contains(event.pos()):
+            self.pass_through_event(event)
+        else:
+            super().mouseReleaseEvent(event)
+
+    def pass_through_event(self, event: QMouseEvent):
+        if not self.target_widget:
+            return
+
+        self.hide()
+        widget_at_pos = QApplication.widgetAt(event.globalPosition().toPoint())
+        if widget_at_pos:
+            new_event = QMouseEvent(
+                event.type(),
+                widget_at_pos.mapFromGlobal(event.globalPosition().toPoint()),
+                event.globalPosition(),
+                event.button(),
+                event.buttons(),
+                event.modifiers()
+            )
+            QApplication.postEvent(widget_at_pos, new_event)
+        self.show()
