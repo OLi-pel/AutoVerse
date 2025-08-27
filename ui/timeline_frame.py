@@ -5,8 +5,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QMouseEvent
 
 class WaveformFrame(QFrame):
     seek_requested = Signal(float)
-    # --- NEW: Signal to report when a bar is dragged by the user ---
-    bar_dragged = Signal(str, float) # Emits bar_name ("start" or "playhead") and new_time (in seconds)
+    bar_dragged = Signal(str, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -20,9 +19,8 @@ class WaveformFrame(QFrame):
 
         self.edit_mode_active = False
         self.start_bar_pos_secs = 0.0
-        self._dragging_bar = None # None, "start", or "playhead"
+        self._dragging_bar = None
 
-        # Colors
         self.wave_color = QColor("#909090")
         self.progress_color = QColor("#0078d4")
         self.cursor_color = QColor("#d13438")
@@ -37,7 +35,6 @@ class WaveformFrame(QFrame):
     def set_progress(self, progress_seconds):
         self._progress = max(0.0, min(progress_seconds, self._duration)); self.update()
 
-    # --- Methods to control edit mode ---
     def enter_edit_mode(self, start_seconds):
         self.edit_mode_active = True
         self.start_bar_pos_secs = start_seconds
@@ -53,7 +50,6 @@ class WaveformFrame(QFrame):
             self.start_bar_pos_secs = max(0.0, min(seconds, self._duration))
             self.update()
 
-    # --- Drawing and Interaction ---
     def paintEvent(self, event):
         super().paintEvent(event)
         painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
@@ -66,29 +62,23 @@ class WaveformFrame(QFrame):
         def get_scaled_line_height(sample_value):
             return max(-h_half, min(sample_value * h_half * self.amplitude_scale, h_half))
 
-        # Base waveform
         painter.setPen(QPen(self.wave_color, 1))
         for i in range(w):
             data_index = int((i / w) * data_len)
             if 0 <= data_index < data_len:
-                sample = self._waveform_data[data_index]
-                line_height = get_scaled_line_height(sample)
+                line_height = get_scaled_line_height(self._waveform_data[data_index])
                 painter.drawLine(i, int(h_half - line_height), i, int(h_half + line_height))
 
-        # Progress overlay
         progress_x = int((self._progress / self._duration) * w)
         painter.setPen(QPen(self.progress_color, 1))
         for i in range(progress_x):
             data_index = int((i / w) * data_len)
             if 0 <= data_index < data_len:
-                sample = self._waveform_data[data_index]
-                line_height = get_scaled_line_height(sample)
+                line_height = get_scaled_line_height(self._waveform_data[data_index])
                 painter.drawLine(i, int(h_half - line_height), i, int(h_half + line_height))
 
-        # Playhead (always drawn)
         painter.setPen(QPen(self.cursor_color, 2)); painter.drawLine(progress_x, 0, progress_x, h)
         
-        # Start bar (only in edit mode)
         if self.edit_mode_active:
             start_x = int((self.start_bar_pos_secs / self._duration) * w)
             painter.setPen(QPen(self.start_bar_color, 2, Qt.DashLine))
@@ -98,45 +88,40 @@ class WaveformFrame(QFrame):
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() != Qt.LeftButton: return
 
+        click_x = event.position().x()
+        sensitivity = 8
+        self._dragging_bar = None
+        
         if self.edit_mode_active:
-            click_x = event.position().x()
-            sensitivity = 8  # Click sensitivity in pixels
-            
-            # Check proximity to start bar first
             start_x = int((self.start_bar_pos_secs / self._duration) * self.width())
             if abs(click_x - start_x) <= sensitivity:
                 self._dragging_bar = "start"
-                self._handle_drag(event.position().x()) # Immediately update on click
+                self.bar_dragged.emit("start", self._time_from_x(click_x))
                 return
 
-            # Check proximity to playhead
-            playhead_x = int((self._progress / self._duration) * self.width())
-            if abs(click_x - playhead_x) <= sensitivity:
-                self._dragging_bar = "playhead"
-                self._handle_drag(event.position().x()) # Immediately update on click
-                return
-        else:
-            # If not in edit mode, default to seeking
-            self._handle_seek(event.position().x())
+        playhead_x = int((self._progress / self._duration) * self.width())
+        if abs(click_x - playhead_x) <= sensitivity:
+            self._dragging_bar = "playhead"
+            self.bar_dragged.emit("playhead", self._time_from_x(click_x))
+            return
+
+        self.seek_requested.emit(self._percentage_from_x(click_x))
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if not (event.buttons() & Qt.LeftButton): return
+        if not (event.buttons() & Qt.LeftButton) or not self._dragging_bar:
+            return
         
-        if self._dragging_bar:
-            self._handle_drag(event.position().x())
-        elif not self.edit_mode_active:
-            self._handle_seek(event.position().x())
+        if self._dragging_bar == "start":
+            self.bar_dragged.emit("start", self._time_from_x(event.position().x()))
+        elif self._dragging_bar == "playhead":
+            self.bar_dragged.emit("playhead", self._time_from_x(event.position().x()))
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self._dragging_bar = None
 
-    def _handle_drag(self, x_pos):
-        if not self._dragging_bar or self._duration <= 0: return
-        new_time = max(0.0, min((x_pos / self.width()) * self._duration, self._duration))
-        self.bar_dragged.emit(self._dragging_bar, new_time)
-
-    def _handle_seek(self, x_pos):
-        if self._duration > 0:
-            seek_percentage = max(0.0, min(1.0, x_pos / self.width()))
-            self.seek_requested.emit(seek_percentage)
+    def _percentage_from_x(self, x):
+        return max(0.0, min(1.0, x / self.width()))
+    
+    def _time_from_x(self, x):
+        return self._percentage_from_x(x) * self._duration

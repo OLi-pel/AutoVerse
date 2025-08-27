@@ -5,12 +5,13 @@ import logging
 import os
 import sys
 from PySide6.QtWidgets import QWidget, QCheckBox, QComboBox
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QObject
 
 logger = logging.getLogger(__name__)
 
-class TutorialManager:
+class TutorialManager(QObject):
     def __init__(self, main_app, overlay):
+        super().__init__()
         self.main_app = main_app
         self.overlay = overlay
         self.tutorials = {}
@@ -21,6 +22,11 @@ class TutorialManager:
         self.current_target_widget = None
         self.is_active = False
         self.paused_state = None
+        self._selection_timer = None
+
+        # Simple timer for occasional overlay maintenance (much less aggressive)
+        self._raise_timer = QTimer(self)
+        self._raise_timer.timeout.connect(self._ensure_overlay_on_top)
 
         self._load_tutorials()
         
@@ -28,6 +34,15 @@ class TutorialManager:
         self.overlay.prev_clicked.connect(self.prev_step)
         self.overlay.exit_clicked.connect(self.exit_tutorial)
         self.overlay.target_clicked.connect(self._on_target_clicked)
+
+    def _ensure_overlay_on_top(self):
+        """Gentle maintenance to keep overlay visible."""
+        if self.overlay and self.overlay.isVisible():
+            # Simple raise - no aggressive repainting
+            self.overlay.raise_()
+            # Also ensure the panel stays visible
+            if hasattr(self.overlay, 'panel') and self.overlay.panel:
+                self.overlay.panel.raise_()
 
     def _load_tutorials(self):
         try:
@@ -45,10 +60,10 @@ class TutorialManager:
         if self.is_active: return
         if tutorial_name not in self.tutorials: return
         
-        # --- THIS IS THE NEW LINE TO ENSURE CORRECT STARTING TAB ---
         self.main_app.window.main_tab_widget.setCurrentIndex(0)
-        
-        # Reset UI to initial state before starting tutorial
+        self._start_tutorial_flow(tutorial_name)
+    
+    def _start_tutorial_flow(self, tutorial_name):
         self._reset_ui_for_tutorial()
         
         self.is_active = True
@@ -57,25 +72,33 @@ class TutorialManager:
         self.current_step_index = 0
         self.show_step(self.current_step_index)
         self.overlay.show()
+        
+        # Start a gentle timer for occasional maintenance
+        self._raise_timer.start(500) # Check every 500ms - much less aggressive
 
     def _reset_ui_for_tutorial(self):
-        """Reset UI to initial state for tutorial"""
-        # Clear any loaded files
+        if hasattr(self.main_app, 'correction_logic'):
+            self.main_app.correction_logic.undo_manager.clear()
+            self.main_app.correction_logic._clear_all_selections()
+        
         self.main_app.audio_file_paths = []
         self.main_app.last_single_file_result_path = None
-        
-        # Reset UI elements to initial state
         self.main_app.window.output_text_area.clear()
         self.main_app.window.status_label.setText("Ready")
         self.main_app.window.progress_bar.setValue(0)
         self.main_app.window.correction_button.setEnabled(False)
-        
-        # Clear step1 summary text
         self.main_app.step1_box.set_summary_text("")
-        
-        # Reset to first workflow step
         self.main_app._set_workflow_step(1)
 
+    def _find_widget(self, name):
+        if not name: return None
+        widget = self.main_app.window.findChild(QWidget, name)
+        if not widget:
+            if name == 'correction_timeline_frame' and hasattr(self.main_app.correction_logic, 'timeline'):
+                return self.main_app.correction_logic.timeline
+            logger.warning(f"Could not find widget with name: '{name}'")
+        return widget
+        
     def show_step(self, index):
         if not self.current_tutorial or not (0 <= index < len(self.current_tutorial)):
             self.exit_tutorial()
@@ -86,31 +109,39 @@ class TutorialManager:
         
         if "pre_action" in step_data: self._execute_action(step_data["pre_action"])
         
-        target_widget_name = step_data.get("target_widget")
-        self.current_target_widget = self.main_app.window.findChild(QWidget, target_widget_name)
+        self.current_target_widget = self._find_widget(step_data.get("target_widget"))
+        secondary_widgets = [self._find_widget(name) for name in step_data.get("secondary_widgets", [])]
+        secondary_widgets = [w for w in secondary_widgets if w is not None]
         
-        if not self.current_target_widget:
-            logger.warning(f"Target widget '{target_widget_name}' not found for step {index + 1}")
-        else:
-            logger.info(f"Target widget '{target_widget_name}' found. Visible: {self.current_target_widget.isVisible()}, Enabled: {self.current_target_widget.isEnabled()}")
+        highlight_widgets = [self._find_widget(name) for name in step_data.get("highlight_widgets", [])]
+        highlight_widgets = [w for w in highlight_widgets if w is not None]
 
         validation = step_data.get("validation", {})
         validation_type = validation.get("type")
         is_action_step = validation_type in ["action_click", "file_selected"]
         is_passive = step_data.get("type") == "passive"
-        allow_interaction = validation_type == "interactive_widget" and validation.get("allow_interaction", False)
+        allow_interaction = validation.get("allow_interaction", False) or validation_type == "wait_for_selection"
+        disable_prev_button = step_data.get("disable_prev", False)
 
         self.overlay.show_step(
             target_widget=self.current_target_widget,
             title=step_data.get("title", ""), text=step_data.get("text", ""),
             current_step=index + 1, total_steps=len(self.current_tutorial),
-            is_action_step=is_action_step, allow_interaction=allow_interaction
+            secondary_widgets=secondary_widgets,
+            panel_position_hint=step_data.get("panel_position_hint"),
+            is_action_step=is_action_step, allow_interaction=allow_interaction,
+            disable_prev_button=disable_prev_button,
+            highlight_secondary_widgets=highlight_widgets
         )
         
-        # Ensure overlay is visible and force a repaint
-        if not self.overlay.isVisible():
-            self.overlay.show()
+        if not self.overlay.isVisible(): self.overlay.show()
         self.overlay.update()
+        
+        # Ensure the timer is running when showing steps
+        if not self._raise_timer.isActive():
+            self._raise_timer.start(500)
+        
+        # Simple raise for all tabs
         self.overlay.raise_()
         
         if is_passive: self.overlay.next_button.setEnabled(True)
@@ -120,81 +151,73 @@ class TutorialManager:
         target_name = action_data.get("target")
         method_name = action_data.get("method")
         if not target_name or not method_name: return
+        
         target_obj = getattr(self.main_app, target_name, None)
+        if target_name == "correction_logic":
+            target_obj = getattr(self.main_app, 'correction_logic', None)
+            
         if not target_obj: return
         method_to_call = getattr(target_obj, method_name, None)
         if callable(method_to_call): QTimer.singleShot(100, method_to_call)
 
     def _setup_validation(self, validation):
         self._clear_validation()
-        if not self.current_target_widget: return
+        if not self.current_target_widget and validation.get("type") not in ["wait_for_selection", "manual_next"]:
+             return
         
         validation_type = validation.get("type")
         
         if validation_type == "checked":
             signal = self.current_target_widget.stateChanged
-            connection = signal.connect(
-                lambda state: self.overlay.next_button.setEnabled(state == Qt.Checked.value)
-            )
+            connection = signal.connect(lambda state: self.overlay.next_button.setEnabled(state == Qt.Checked.value))
             self.active_connection = (signal, connection)
             if self.current_target_widget.isChecked():
                 self.overlay.next_button.setEnabled(True)
+        
+        elif validation_type == "wait_for_selection":
+            def check_selection():
+                logic = self.main_app.correction_logic
+                has_selection = logic.selected_segment_id or logic.multi_selection_ids
+                if has_selection:
+                    if self._selection_timer: self._selection_timer.stop()
+                    self.next_step()
+            
+            self._selection_timer = QTimer(self)
+            self._selection_timer.timeout.connect(check_selection)
+            self._selection_timer.start(200)
 
-        elif validation_type == "value_changed":
-            if isinstance(self.current_target_widget, QComboBox):
-                expected_value = validation.get("value")
-                signal = self.current_target_widget.currentTextChanged
-                connection = signal.connect(
-                    lambda text: self.overlay.next_button.setEnabled(expected_value in text)
-                )
-                self.active_connection = (signal, connection)
-                if expected_value in self.current_target_widget.currentText():
-                    self.overlay.next_button.setEnabled(True)
-                    
-        elif validation_type == "manual_next":
-            # Just enable the next button - no validation required
-            self.overlay.next_button.setEnabled(True)
-        elif validation_type == "interactive_widget":
-            # Enable the next button for interactive widgets
+        elif validation_type in ["manual_next", "interactive_widget"]:
             self.overlay.next_button.setEnabled(True)
 
     def _on_target_clicked(self):
         if not self.current_target_widget: return
         
         validation = self.current_tutorial[self.current_step_index].get("validation", {})
-        validation_type = validation.get("type")
         action_name = validation.get("action")
+        auto_advances = validation.get("auto_advances", False)
 
-        if validation_type == "file_selected" and action_name == "select_files":
+        if validation.get("type") == "file_selected":
             self.overlay.hide()
             self.main_app.select_files() 
             if self.main_app.audio_file_paths:
-                # Automatically advance to next step when files are selected
-                # Use longer delay to ensure the workflow step change and UI updates complete first
                 QTimer.singleShot(300, self.next_step)
             else:
                 self.overlay.show()
-        elif validation_type == "action_click":
+        elif validation.get("type") == "action_click":
             action_method = getattr(self.main_app, action_name, None)
+            if not action_method and hasattr(self.main_app, 'correction_logic'):
+                action_method = getattr(self.main_app.correction_logic, action_name, None)
+
             if callable(action_method):
                 action_method()
-                if action_name not in ["start_or_abort_processing", "_proceed_to_processing_step"]:
-                    self.next_step()
+                if auto_advances:
+                    QTimer.singleShot(100, self.next_step)
             else:
-                logger.error(f"Action '{action_name}' not found on main app.")
-        elif validation_type == "interactive_widget":
-            # For interactive widgets, don't intercept the click - let it pass through
-            # The overlay should allow interaction with the target widget
-            logger.info(f"Interactive widget clicked: {self.current_target_widget.__class__.__name__}")
-            # Don't advance automatically - user needs to click Next when ready
-            return
+                logger.error(f"Action '{action_name}' not found.")
         else:
-            # Only try to click if the widget has a click method (buttons, etc.)
             if hasattr(self.current_target_widget, 'click'):
                 self.current_target_widget.click()
-            else:
-                # For non-clickable widgets, just advance to next step
-                logger.info(f"Widget {self.current_target_widget.__class__.__name__} is not clickable, advancing to next step")
+            if auto_advances:
                 self.next_step()
 
     def next_step(self):
@@ -204,91 +227,58 @@ class TutorialManager:
             self.show_step(self.current_step_index)
         else:
             self.exit_tutorial()
-    
-    def should_auto_start_tutorial(self, tutorial_name):
-        """Check if a tutorial should be automatically started for first-time users"""
-        if not hasattr(self.main_app, 'config_manager'):
-            return False
-            
-        if tutorial_name == "transcription":
-            return not self.main_app.config_manager.get_transcription_tutorial_completed()
-        elif tutorial_name == "correction":
-            return not self.main_app.config_manager.get_correction_tutorial_completed()
-        
-        return False
 
     def prev_step(self):
         self._clear_validation()
         if self.current_tutorial and self.current_step_index > 0:
             self.current_step_index -= 1
             self.show_step(self.current_step_index)
-
+            
     def pause_tutorial(self):
         if not self.is_active: return
-        next_step_index = self.current_step_index
-        step_data = self.current_tutorial[self.current_step_index]
+        next_step_index = self.current_step_index + 1
         
-        if step_data.get("validation", {}).get("type") == "action_click":
-            action_name = step_data.get("validation", {}).get("action")
-            if action_name == "_proceed_to_processing_step":
-                # Skip the "Start Processing" step and go directly to "View Your Transcript"
-                next_step_index += 2
-            else:
-                next_step_index += 1
-
         self.paused_state = { "name": self.current_tutorial_name, "step": next_step_index }
-        
-        # Hide tutorial without clearing paused state
-        self._clear_validation()
-        self.current_tutorial = None
-        self.current_step_index = -1
-        self.is_active = False
-        self.overlay.hide()
-        
-        logger.info(f"Tutorial paused. Will resume at step {next_step_index}.")
+        self.exit_tutorial(is_pause=True) # Use exit logic to clean up
+        logger.info(f"Tutorial paused. Will resume at step index {next_step_index}.")
 
     def resume_tutorial(self):
         if not self.paused_state: return
-        
         name, step = self.paused_state["name"], self.paused_state["step"]
-        
         self.is_active = True
         self.current_tutorial_name, self.current_tutorial = name, self.tutorials[name]
         self.current_step_index = step
-        
         self.show_step(self.current_step_index)
         self.overlay.show()
-        
+        self._raise_timer.start(500) # Restart timer on resume
         self.paused_state = None
-        logger.info(f"Tutorial resumed at step {step}.")
+        logger.info(f"Tutorial resumed at step index {step}.")
 
-    def exit_tutorial(self):
-        # Mark tutorial as completed if we reached the end
-        if self.current_tutorial_name and self.current_tutorial and self.current_step_index >= len(self.current_tutorial) - 1:
+    def exit_tutorial(self, is_pause=False):
+        if not is_pause and self.current_tutorial_name and self.current_tutorial and self.current_step_index >= len(self.current_tutorial) - 1:
             self._mark_tutorial_completed(self.current_tutorial_name)
         
+        self._raise_timer.stop() # --- FIX: Stop the timer on exit ---
         self._clear_validation()
-        self.current_tutorial = None
-        self.current_step_index = -1
-        self.is_active = False
-        self.paused_state = None
+        self.current_tutorial, self.current_step_index, self.is_active = None, -1, False
+        if not is_pause:
+            self.paused_state = None
         self.overlay.hide()
-    
+
     def _mark_tutorial_completed(self, tutorial_name):
-        """Mark a tutorial as completed in the config"""
         if hasattr(self.main_app, 'config_manager'):
-            if tutorial_name == "transcription":
+            if tutorial_name == "main_tutorial":
                 self.main_app.config_manager.set_transcription_tutorial_completed(True)
-                logger.info("Transcription tutorial marked as completed")
-            elif tutorial_name == "correction":
                 self.main_app.config_manager.set_correction_tutorial_completed(True)
-                logger.info("Correction tutorial marked as completed")
+                logger.info(f"Main tutorial marked as completed.")
 
     def _clear_validation(self):
+        if self._selection_timer:
+            self._selection_timer.stop()
+            self._selection_timer = None
         if self.active_connection:
             try:
-                signal, connection_object = self.active_connection
-                signal.disconnect(connection_object)
-            except (TypeError, RuntimeError) as e:
-                logger.debug(f"Could not disconnect signal: {e}")
+                signal, connection = self.active_connection
+                signal.disconnect(connection)
+            except (TypeError, RuntimeError): pass
             self.active_connection = None

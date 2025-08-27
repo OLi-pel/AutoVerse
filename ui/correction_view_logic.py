@@ -199,9 +199,8 @@ class CorrectionViewLogic(QObject):
                 
                 self._start_auto_save()
                 
-                # --- THE FIX: REMOVED THE CALL TO THE NOW-DELETED METHOD ---
-                # self._offer_tutorial_if_first_time()
-                # --- END OF FIX ---
+                self._offer_tutorial_if_first_time()
+
             except Exception as e:
                 logger.exception("Load error."); self.set_controls_enabled(False); QMessageBox.critical(self.main_window, "Load Error", str(e))
                 self._stop_auto_save()
@@ -209,21 +208,18 @@ class CorrectionViewLogic(QObject):
     def _offer_tutorial_if_first_time(self):
         """Offer to start the correction tutorial for first-time users"""
         if self.main_app and hasattr(self.main_app, 'tutorial_manager') and hasattr(self.main_app, 'config_manager'):
-            if self.main_app.tutorial_manager.should_auto_start_tutorial("correction"):
-                from PySide6.QtWidgets import QMessageBox
-                from PySide6.QtCore import QTimer
-
+            if not self.main_app.config_manager.get_correction_tutorial_completed():
                 reply = QMessageBox.question(
                     self.main_window,
                     "Correction Tutorial",
-                    "Welcome to the Correction Window! Would you like to take a quick tutorial to learn about all the editing features?",
+                    "Welcome to the Correction Window! Would you like to take a quick interactive tutorial to learn about the editing features?",
                     QMessageBox.Yes | QMessageBox.No,
                     QMessageBox.Yes
                 )
 
                 if reply == QMessageBox.Yes:
                     # Delay tutorial start to ensure UI is fully loaded
-                    QTimer.singleShot(300, lambda: self.main_app.tutorial_manager.start_tutorial("correction"))
+                    QTimer.singleShot(300, lambda: self.main_app.tutorial_manager.start_tutorial("correction_tutorial"))
                 else:
                     # Mark as completed so we don't ask again
                     self.main_app.config_manager.set_correction_tutorial_completed(True)

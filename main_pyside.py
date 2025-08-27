@@ -400,15 +400,15 @@ def run_app():
                 QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
         
         def _setup_tutorial_menu(self):
-                    """Creates the Help menu and adds the tutorial actions."""
-                    menu_bar = self.window.menuBar()
-                    help_menu = menu_bar.addMenu("&Help")
-                    
-                    start_tutorial_action = help_menu.addAction("Start Tutorial")
-                    start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
-                    start_tutorial_action.triggered.connect(
-                        lambda: self.tutorial_manager.start_tutorial("main_tutorial")
-                    )
+            """Creates the Help menu and adds the tutorial actions."""
+            menu_bar = self.window.menuBar()
+            help_menu = menu_bar.addMenu("&Help")
+            
+            start_tutorial_action = help_menu.addAction("Start Tutorial")
+            start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
+            start_tutorial_action.triggered.connect(
+                lambda: self.tutorial_manager.start_tutorial("main_tutorial")
+            )
         
         def _setup_main_workflow_layout(self):
             transcription_tab = self.window.findChild(QWidget, "tab")
@@ -997,7 +997,6 @@ rm -- "$0"
             token = self.config_manager.load_huggingface_token()
             if token: self.window.huggingface_token_entry.setText(token)
             
-            # --- THE BUG FIX ---
             is_diarize_checked = self.window.identify_speakers_checkbutton.isChecked()
             diarize_check_state = Qt.CheckState.Checked.value if is_diarize_checked else Qt.CheckState.Unchecked.value
             self.toggle_speaker_options(diarize_check_state)
@@ -1058,7 +1057,7 @@ rm -- "$0"
                 self.step3_box.set_summary_text("Configure options to continue.")
 
                 self.change_files_button.hide()
-                self.window.browse_button.show()  # Ensure browse button is visible in step 1
+                self.window.browse_button.show()
             
             elif step_number == 2:
                 self.step1_box.collapse()
@@ -1071,7 +1070,7 @@ rm -- "$0"
                 self.step3_box.set_summary_text("Configure options to continue.")
                 
                 self.change_files_button.show()
-                self.window.browse_button.hide() # Browse is inside the now-open box
+                self.window.browse_button.hide()
             
             elif step_number == 3:
                 self.step1_box.collapse()
@@ -1097,7 +1096,6 @@ rm -- "$0"
 
         @Slot()
         def _proceed_to_processing_step(self):
-            # Save the current options before proceeding
             self.config_manager.save_processing_options(self.get_processing_options())
             logger.info("Processing options saved.")
             
@@ -1115,15 +1113,12 @@ rm -- "$0"
                 self.window.progress_bar.setValue(0)
                 self.set_ui_for_processing(False)
                 
-                # Resume tutorial after processing abort
                 if self.tutorial_manager.paused_state:
-                    self.tutorial_manager.resume_tutorial()
+                    QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
                 return
 
-            # --- ADD THIS CHECK ---
             if self.tutorial_manager.is_active:
                 self.tutorial_manager.pause_tutorial()
-            # --- END OF ADDITION ---
 
             if not self.audio_file_paths:
                 QMessageBox.critical(self.window, "Error", "Please select one or more audio/video files first.")
@@ -1212,9 +1207,8 @@ rm -- "$0"
                         QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly.")
                         self.window.status_label.setText("Error: Processing stopped unexpectedly.")
                     
-                    # Resume tutorial after processing error
                     if self.tutorial_manager.paused_state:
-                        self.tutorial_manager.resume_tutorial()
+                        QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
         
         def _format_etr(self, seconds: float) -> str:
             if seconds < 60:
@@ -1243,9 +1237,6 @@ rm -- "$0"
                     self.window.output_text_area.setPlainText(f"An error occurred:\n{msg}")
                     QMessageBox.critical(self.window, "Processing Error", msg)
                 
-                # Resume tutorial after single file processing
-                if self.tutorial_manager.paused_state:
-                    self.tutorial_manager.resume_tutorial()
             else: 
                 for result in results:
                     file_name = os.path.basename(result.source_file)
@@ -1263,7 +1254,8 @@ rm -- "$0"
             self.set_ui_for_processing(False)
 
             if self.tutorial_manager.paused_state:
-                self.tutorial_manager.resume_tutorial()
+                # Use a timer to ensure the UI updates before the tutorial reappears
+                QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
         
         def prompt_and_save_single_result(self, result):
             if hasattr(result, 'output_path') and result.output_path:
