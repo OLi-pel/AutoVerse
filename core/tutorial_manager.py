@@ -46,9 +46,8 @@ class TutorialManager(QObject):
 
     def _load_tutorials(self):
         try:
-            base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-            project_root = os.path.dirname(base_path)
-            config_path = os.path.join(project_root, 'tutorials.json')
+            base_path = getattr(sys, '_MEIPASS', os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+            config_path = os.path.join(base_path, 'tutorials.json')
             with open(config_path, 'r', encoding='utf-8') as f:
                 self.tutorials = json.load(f)
             logger.info("Tutorials loaded successfully.")

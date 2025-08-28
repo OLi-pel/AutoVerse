@@ -14,6 +14,7 @@ else:
     ffmpeg_binary_path = os.path.join('bin', 'ffmpeg')
 
 datas = [
+    ('tutorials.json', '.'),
     ('ui/main_window.ui', 'ui'),
     ('assets', 'assets'),
     *collect_data_files('lightning_fabric'),
