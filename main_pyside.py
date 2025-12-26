@@ -9,9 +9,6 @@ import certifi
 from queue import Empty
 import platform
 import requests
-import tempfile
-import subprocess
-import shutil
 import webbrowser
 from packaging.version import Version
 
@@ -148,7 +145,7 @@ def run_app():
             self.setWindowTitle("Welcome to AutoVerse!")
             self.choice = None
             self.setModal(True)
-            self.setFixedSize(450, 350) # Increased height for the new button
+            self.setFixedSize(450, 350)
             
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
@@ -176,14 +173,12 @@ def run_app():
             self.edit_button.clicked.connect(self.select_edit)
             layout.addWidget(self.edit_button)
 
-            # --- NEW TUTORIAL BUTTON ---
             self.tutorial_button = QPushButton(" Start the Interactive Tutorial")
             self.tutorial_button.setIcon(QIcon(os.path.join(icon_dir, 'interrogation.png')))
             self.tutorial_button.setMinimumHeight(60)
             self.tutorial_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; background-color: #0078d7; }")
             self.tutorial_button.clicked.connect(self.select_tutorial)
             layout.addWidget(self.tutorial_button)
-            # --- END OF NEW BUTTON ---
 
             layout.addStretch(1)
 
@@ -203,47 +198,14 @@ def run_app():
             self.choice = 'tutorial'
             self.accept()
 
-    def get_true_application_path():
-        if not (getattr(sys, 'frozen', False) and sys.platform == 'darwin'):
-            return None
-        try:
-            executable_path = os.path.realpath(sys.executable)
-            current_path = os.path.dirname(executable_path)
-            for _ in range(6):
-                if current_path.endswith('.app'):
-                    return current_path
-                parent_path = os.path.dirname(current_path)
-                if parent_path == current_path:
-                    break
-                current_path = parent_path
-        except Exception as e:
-            try:
-                logging.error(f"Error while trying to determine application path: {e}")
-            except:
-                pass
-        return None
-
     class UpdateChecker(QThread):
         update_available = Signal(str, str, str)
         def __init__(self, owner, repo):
             super().__init__()
             self.owner = owner
             self.repo = repo
-            self.current_os_string = self._get_os_string()
-            if not self.current_os_string:
-                logger.warning("Auto-updates not supported on this OS.")
-                return
-            self.asset_name = f"AutoVerse-{self.current_os_string}-App.zip"
-
-        def _get_os_string(self):
-            system = platform.system()
-            if system == "Windows": return "Windows"
-            if system == "Darwin": return "macOS"
-            return None
-        
+            
         def run(self):
-            if not self.current_os_string:
-                return
             try:
                 url = f"https://api.github.com/repos/{self.owner}/{self.repo}/releases/latest"
                 logger.info(f"Checking for updates at: {url}")
@@ -252,59 +214,19 @@ def run_app():
                 
                 latest_release = response.json()
                 latest_version_str = latest_release.get("tag_name", "v0.0.0").lstrip('v')
+                release_url = latest_release.get("html_url", url)
                 
                 if Version(latest_version_str) > Version(constants.APP_VERSION):
                     logger.info(f"Update found! Current: {constants.APP_VERSION}, Latest: {latest_version_str}")
-                    download_url = ""
-                    for asset in latest_release.get("assets", []):
-                        if asset.get("name") == self.asset_name:
-                            download_url = asset.get("browser_download_url")
-                            break
-                    
-                    if download_url:
-                        self.update_available.emit(
-                            latest_version_str, 
-                            latest_release.get("body", "No release notes available."),
-                            download_url
-                        )
-                    else:
-                        logger.warning(f"Update {latest_version_str} found, but asset '{self.asset_name}' was not present.")
+                    self.update_available.emit(
+                        latest_version_str, 
+                        latest_release.get("body", "No release notes available."),
+                        release_url
+                    )
             except requests.RequestException as e:
                 logger.warning(f"Could not check for updates (network issue): {e}")
             except Exception as e:
                 logger.error(f"An unexpected error occurred during update check: {e}", exc_info=True)
-
-    class Downloader(QThread):
-        download_progress = Signal(int)
-        download_finished = Signal(bool, str)
-        def __init__(self, url):
-            super().__init__()
-            self.url = url
-        def run(self):
-            try:
-                logger.info(f"Starting download from: {self.url}")
-                response = requests.get(self.url, stream=True, timeout=15)
-                response.raise_for_status()
-                total_size = int(response.headers.get('content-length', 0))
-                
-                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as temp_file:
-                    file_path = temp_file.name
-                
-                downloaded_size = 0
-                with open(file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                        downloaded_size += len(chunk)
-                        progress = int((downloaded_size / total_size) * 100) if total_size > 0 else 0
-                        self.download_progress.emit(progress)
-                logger.info(f"Download complete. File saved to: {file_path}")
-                self.download_finished.emit(True, file_path)
-            except requests.RequestException as e:
-                logger.error(f"Download failed: {e}", exc_info=True)
-                self.download_finished.emit(False, "")
-            except Exception as e:
-                logger.error(f"An unexpected error occurred during download: {e}", exc_info=True)
-                self.download_finished.emit(False, "")
 
     class MainApplication(QObject):
         def __init__(self, app_instance):
@@ -332,7 +254,7 @@ def run_app():
 
             self.correction_logic = CorrectionViewLogic(self.window, self)
             self.tip_widgets = {
-                self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.model_dropdown: "transcription_model_dropdown", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
+                self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
             self._setup_fonts()
             self._setup_icons()
@@ -355,14 +277,9 @@ def run_app():
             self.connect_signals()
             self.load_initial_settings()
             
-            # Defer the startup logic until the constructor is fully finished
             QTimer.singleShot(0, self.run_startup_logic)
 
         def run_startup_logic(self):
-            """
-            Handles the logic for the welcome wizard and initial window state.
-            This is run after the constructor is fully complete.
-            """
             if getattr(sys, 'frozen', False):
                 logger.info("Application is frozen, initializing update check.")
                 self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
@@ -371,7 +288,6 @@ def run_app():
             else:
                 logger.info("Application not frozen. Skipping update check.")
 
-            # 1. Check if we need to show the wizard due to an update or user preference
             last_seen_version = self.config_manager.get_last_seen_version()
             if Version(constants.APP_VERSION) > Version(last_seen_version):
                 logger.info(f"New version detected ({last_seen_version} -> {constants.APP_VERSION}). Forcing welcome wizard.")
@@ -384,26 +300,20 @@ def run_app():
                 if welcome_dialog.exec() == QDialog.Accepted:
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
                     user_choice = welcome_dialog.choice
-                else: # Dialog was closed
+                else: 
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
             
-            # 2. Configure the window state based on the choice (if any)
             if user_choice == 'edit':
                 self.window.main_tab_widget.setCurrentIndex(1)
             
-            # 3. Show the main window once, after all decisions are made
             self.window.show()
             
-            # 4. Start the tutorial AFTER the window is visible
             if user_choice == 'tutorial':
-                # Use a QTimer to ensure the main event loop has processed the show() event
                 QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
         
         def _setup_tutorial_menu(self):
-            """Creates the Help menu and adds the tutorial actions."""
             menu_bar = self.window.menuBar()
             help_menu = menu_bar.addMenu("&Help")
-            
             start_tutorial_action = help_menu.addAction("Start Tutorial")
             start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
             start_tutorial_action.triggered.connect(
@@ -414,12 +324,10 @@ def run_app():
             transcription_tab = self.window.findChild(QWidget, "tab")
             transcription_tab_layout = transcription_tab.layout().findChild(QVBoxLayout)
 
-            # Create Collapsible Boxes
             self.step1_box = CollapsibleBox("Step 1: Select Audio/Video File(s)", "")
             self.step2_box = CollapsibleBox("Step 2: Configure Processing Options", "Select file(s) to continue.")
             self.step3_box = CollapsibleBox("Step 3: Start Processing & View Output", "Configure options to continue.")
 
-            # == STEP 1 MIGRATION ==
             step1_new_content_layout = QVBoxLayout()
             original_step1_layout = self.window.Audio_file_frame.layout()
             while original_step1_layout.count():
@@ -427,40 +335,28 @@ def run_app():
                 step1_new_content_layout.addItem(item)
             self.step1_box.setContentLayout(step1_new_content_layout)
 
-            # == STEP 2 MIGRATION (Restoring Horizontal Layout) ==
-            # --- THE FIX for horizontal alignment ---
-            # Get the original group boxes
-            model_frame = self.window.findChild(QGroupBox, "Model_selection_frame")
             speaker_frame = self.window.Speaker_options_frame
             timestamps_frame = self.window.Timestamps_options_frame
             
-            # Set their size policy to allow vertical expansion
-            model_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             speaker_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             timestamps_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-            # Create a new HORIZONTAL layout for the contents of Step 2
             step2_content_hlayout = QHBoxLayout()
-            step2_content_hlayout.addWidget(model_frame)
             step2_content_hlayout.addWidget(speaker_frame)
             step2_content_hlayout.addWidget(timestamps_frame)
             
-            # Put the horizontal layout inside a main vertical layout for this step
             self.step2_new_content_layout = QVBoxLayout()
             self.step2_new_content_layout.addLayout(step2_content_hlayout)
             self.step2_box.setContentLayout(self.step2_new_content_layout)
             
-            # == STEP 3 MIGRATION ==
             step3_content_layout = QVBoxLayout()
             step3_content_layout.addWidget(self.window.status_and_play_frame)
             step3_content_layout.addWidget(self.window.Output_area_frame)
             self.step3_box.setContentLayout(step3_content_layout)
 
-            # Hide the now-empty original containers
             self.window.Audio_file_frame.setParent(None)
             self.window.Processing_options_frame.setParent(None)
             
-            # Clear original main layout and add new collapsible boxes
             while transcription_tab_layout.count():
                 child = transcription_tab_layout.takeAt(0)
                 if child.widget(): child.widget().setParent(None)
@@ -469,7 +365,6 @@ def run_app():
             transcription_tab_layout.addWidget(self.step2_box)
             transcription_tab_layout.addWidget(self.step3_box)
 
-            # Add workflow buttons
             self.change_files_button = QPushButton("Change Selection")
             step1_new_content_layout.addWidget(self.change_files_button)
             
@@ -484,14 +379,12 @@ def run_app():
             transcription_tab_layout.addStretch(1)
 
         def _setup_nested_collapsible_options(self):
-            # --- Auto-Merge nested under Speaker Detection ---
             speaker_frame_layout = self.window.Speaker_options_frame.layout()
             self.others_speaker_box = CollapsibleBox("Others", is_compact=True)
             self.others_speaker_box.addWidget(self.window.auto_merge_checkbutton)
             speaker_frame_layout.addWidget(self.others_speaker_box)
             self.others_speaker_box.collapse()
 
-            # --- End Times nested under Timestamps ---
             timestamp_frame_layout = self.window.Timestamps_options_frame.layout()
             self.others_timestamp_box = CollapsibleBox("Others", is_compact=True)
             self.others_timestamp_box.addWidget(self.window.end_times_checkbutton)
@@ -531,300 +424,23 @@ def run_app():
         def prompt_for_update(self, version, notes, url):
             msg_box = QMessageBox(self.window)
             msg_box.setWindowTitle(f"Update Available: v{version}")
-            msg_box.setText(f"A new version of AutoVerse is available (<b>v{version}</b>). You have v{constants.APP_VERSION}.<br><br>Would you like to download and install it now?")
+            msg_box.setText(f"A new version of AutoVerse is available (<b>v{version}</b>). You have v{constants.APP_VERSION}.<br><br>Would you like to view the release page?")
             msg_box.setInformativeText(f"<b>Release Notes:</b><hr>{notes}")
             msg_box.setTextFormat(Qt.RichText)
-            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg_box.setDefaultButton(QMessageBox.Yes)
             
-            if msg_box.exec() == QMessageBox.Yes:
-                self.start_download(url)
-
-        def start_download(self, url):
-            self.window.status_label.setText("Downloading update...")
-            self.downloader = Downloader(url)
-            self.downloader.download_progress.connect(self.window.progress_bar.setValue)
-            self.downloader.download_finished.connect(self.on_download_finished)
-            self.downloader.start()
-
-        @Slot(bool, str)
-        def on_download_finished(self, success, file_path):
-            if not success:
-                QMessageBox.critical(self.window, "Download Error", "Failed to download the update. Please try again later or visit the GitHub page to download it manually.")
-                self.window.status_label.setText("Update download failed.")
-                self.window.progress_bar.setValue(0)
-                return
+            open_btn = msg_box.addButton("Open Release Page", QMessageBox.AcceptRole)
+            ignore_btn = msg_box.addButton("Ignore", QMessageBox.RejectRole)
             
-            self.window.status_label.setText("Download complete. Starting update...")
-            self.window.progress_bar.setValue(100)
-            self.trigger_updater(file_path)
-
-        def trigger_updater(self, zip_path):
-            try:
-                script_path = ""
-                script_content = ""
-
-                if sys.platform == 'darwin':
-                    final_app_path = "/Applications/AutoVerse.app"
-                    old_app_path = get_true_application_path()
-                    log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
-                    
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sh', encoding='utf-8') as f:
-                        script_path = f.name
-                        script_content = f'''#!/bin/bash
-
-# AutoVerse macOS Updater Script
-# Log file: {log_file_path}
-
-exec > >(tee -a "{log_file_path}") 2>&1
-
-echo "=== AutoVerse macOS Updater Started ==="
-echo "Date: $(date)"
-echo "Zip Path: {zip_path}"
-echo "Final App Path: {final_app_path}"
-echo "Old App Path: {old_app_path or 'None'}"
-echo ""
-
-# Wait for main app to close
-echo "Step 1: Waiting for AutoVerse to close..."
-sleep 3
-
-# Terminate any remaining processes
-echo "Step 2: Terminating any remaining AutoVerse processes..."
-pkill -f "AutoVerse" 2>/dev/null || true
-sleep 2
-
-# Create backup
-echo "Step 3: Creating backup of current installation..."
-BACKUP_DIR="{final_app_path}_backup_$(date +%Y%m%d_%H%M%S)"
-if [ -d "{final_app_path}" ]; then
-    cp -R "{final_app_path}" "$BACKUP_DIR"
-    echo "Backup created at: $BACKUP_DIR"
-else
-    echo "No existing installation found to backup"
-fi
-
-# Extract update
-echo "Step 4: Extracting new version..."
-TEMP_DIR=$(mktemp -d)
-echo "Temporary directory: $TEMP_DIR"
-
-if ! unzip -q "{zip_path}" -d "$TEMP_DIR"; then
-    echo "ERROR: Failed to extract zip file"
-    echo "Cleaning up..."
-    rm -rf "$TEMP_DIR"
-    exit 1
-fi
-
-# Find the .app bundle
-echo "Step 5: Searching for application bundle..."
-SOURCE_APP_PATH=$(find "$TEMP_DIR" -name "*.app" -type d -print -quit)
-
-# Check for nested zip if no .app found
-if [ -z "$SOURCE_APP_PATH" ]; then
-    echo "No .app found, checking for nested zip..."
-    NESTED_ZIP=$(find "$TEMP_DIR" -name "*.zip" -print -quit)
-    if [ -n "$NESTED_ZIP" ]; then
-        echo "Found nested zip: $NESTED_ZIP"
-        NESTED_TEMP=$(mktemp -d)
-        if unzip -q "$NESTED_ZIP" -d "$NESTED_TEMP"; then
-            SOURCE_APP_PATH=$(find "$NESTED_TEMP" -name "*.app" -type d -print -quit)
-            if [ -n "$SOURCE_APP_PATH" ]; then
-                # Move the .app to the main temp directory
-                mv "$SOURCE_APP_PATH" "$TEMP_DIR/"
-                SOURCE_APP_PATH="$TEMP_DIR/$(basename "$SOURCE_APP_PATH")"
-            fi
-        fi
-        rm -rf "$NESTED_TEMP"
-    fi
-fi
-
-if [ -z "$SOURCE_APP_PATH" ] || [ ! -d "$SOURCE_APP_PATH" ]; then
-    echo "ERROR: Could not find a valid .app bundle in the archive"
-    echo "Contents of temp directory:"
-    ls -la "$TEMP_DIR"
-    echo "Cleaning up..."
-    rm -rf "$TEMP_DIR"
-    exit 1
-fi
-
-echo "Found application bundle at: $SOURCE_APP_PATH"
-
-# Install new version
-echo "Step 6: Installing new version..."
-if [ -d "{final_app_path}" ]; then
-    echo "Removing old version..."
-    rm -rf "{final_app_path}"
-fi
-
-echo "Moving new version to /Applications..."
-if mv "$SOURCE_APP_PATH" "{final_app_path}"; then
-    echo "Successfully installed new version"
-else
-    echo "ERROR: Failed to install new version"
-    echo "Attempting to restore backup..."
-    if [ -d "$BACKUP_DIR" ]; then
-        mv "$BACKUP_DIR" "{final_app_path}"
-        echo "Backup restored"
-    fi
-    rm -rf "$TEMP_DIR"
-    exit 1
-fi
-
-# Clean up old installation if different location
-if [ -n "{old_app_path}" ] && [ -d "{old_app_path}" ] && [ "{old_app_path}" != "{final_app_path}" ]; then
-    echo "Step 7: Cleaning up old installation at {old_app_path}..."
-    rm -rf "{old_app_path}"
-    echo "Old installation removed"
-fi
-
-# Relaunch application
-echo "Step 8: Relaunching AutoVerse..."
-if [ -d "{final_app_path}" ]; then
-    open "{final_app_path}"
-    echo "AutoVerse relaunched successfully"
-else
-    echo "ERROR: Application not found after installation"
-    exit 1
-fi
-
-# Cleanup
-echo "Step 9: Cleaning up temporary files..."
-rm -rf "$TEMP_DIR"
-rm -f "{zip_path}"
-
-# Remove successful backup (keep only on error)
-if [ -d "$BACKUP_DIR" ]; then
-    rm -rf "$BACKUP_DIR"
-    echo "Backup removed (update successful)"
-fi
-
-echo ""
-echo "=== Update completed successfully! ==="
-echo "Date: $(date)"
-echo "Log saved to: {log_file_path}"
-echo ""
-echo "This window will close in 5 seconds..."
-sleep 5
-
-# Remove this script
-rm -- "$0"
-'''
-                        f.write(script_content)
-
-                    os.chmod(script_path, 0o755)
-                    
-                    applescript = f'''
-                    tell application "Terminal"
-                        activate
-                        do script "'{script_path}'"
-                    end tell
-                    '''
-                    
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.scpt', encoding='utf-8') as f:
-                        applescript_path = f.name
-                        f.write(applescript)
-                    
-                    subprocess.Popen(['osascript', applescript_path])
-                
-                elif sys.platform == 'win32':
-                    install_dir = os.path.dirname(sys.executable)
-                    relaunch_path = os.path.join(install_dir, "AutoVerse.exe")
-                    
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.ps1', encoding='utf-8-sig') as f:
-                        script_path = f.name
-                        log_file_path = os.path.join(os.path.expanduser("~"), "autoverse_updater.log")
-                        
-                        script_content = (
-                            f'Start-Transcript -Path "{log_file_path}" -Append -Force\n'
-                            'Write-Host "--- AutoVerse Updater Script Starting ---"\n'
-                            f'$installDir = "{install_dir}"\n'
-                            f'$zipPath = "{zip_path}"\n'
-                            f'$relaunchPath = "{relaunch_path}"\n\n'
-                            
-                            'Write-Host "Waiting for AutoVerse to close..."\n'
-                            'Start-Sleep -Seconds 3\n\n'
-                            
-                            'try {\n'
-                            '    Write-Host "Step 1: Terminating any remaining AutoVerse processes..."\n'
-                            '    Get-Process -Name "AutoVerse" -ErrorAction SilentlyContinue | Stop-Process -Force\n'
-                            '    Start-Sleep -Seconds 2\n\n'
-                            
-                            '    Write-Host "Step 2: Creating backup of current installation..."\n'
-                            '    $backupDir = "$installDir" + "_backup_" + (Get-Date -Format "yyyyMMdd_HHmmss")\n'
-                            '    if (Test-Path $installDir) {\n'
-                            '        Copy-Item -Path $installDir -Destination $backupDir -Recurse -Force\n'
-                            '        Write-Host "Backup created at: $backupDir"\n'
-                            '    }\n\n'
-                            
-                            '    Write-Host "Step 3: Extracting new version..."\n'
-                            '    $tempExtractDir = "$env:TEMP\\AutoVerse_Update_" + (Get-Date -Format "yyyyMMdd_HHmmss")\n'
-                            '    Expand-Archive -Path $zipPath -DestinationPath $tempExtractDir -Force\n\n'
-                            
-                            '    Write-Host "Step 4: Finding extracted files..."\n'
-                            '    $extractedFiles = Get-ChildItem -Path $tempExtractDir -Recurse -File\n'
-                            '    if ($extractedFiles.Count -eq 0) {\n'
-                            '        throw "No files found in extracted archive"\n'
-                            '    }\n\n'
-                            
-                            '    Write-Host "Step 5: Updating application files..."\n'
-                            '    foreach ($file in $extractedFiles) {\n'
-                            '        $relativePath = $file.FullName.Substring($tempExtractDir.Length + 1)\n'
-                            '        $destPath = Join-Path $installDir $relativePath\n'
-                            '        $destDir = Split-Path $destPath -Parent\n'
-                            '        if (!(Test-Path $destDir)) {\n'
-                            '            New-Item -ItemType Directory -Path $destDir -Force | Out-Null\n'
-                            '        }\n'
-                            '        Copy-Item -Path $file.FullName -Destination $destPath -Force\n'
-                            '    }\n\n'
-                            
-                            '    Write-Host "Step 6: Cleaning up temporary files..."\n'
-                            '    Remove-Item -Path $tempExtractDir -Recurse -Force\n'
-                            '    Remove-Item -Path $zipPath -Force\n\n'
-                            
-                            '    Write-Host "Step 7: Relaunching AutoVerse..."\n'
-                            '    if (Test-Path $relaunchPath) {\n'
-                            '        Start-Process -FilePath $relaunchPath\n'
-                            '        Write-Host "Update completed successfully!"\n'
-                            '    } else {\n'
-                            '        Write-Error "Relaunch failed. Executable not found at: $relaunchPath"\n'
-                            '        Write-Host "You can manually start AutoVerse from: $installDir"\n'
-                            '    }\n'
-                            '} catch {\n'
-                            '    Write-Host "--- UPDATE ERROR ---" -ForegroundColor Red\n'
-                            '    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Yellow\n'
-                            '    Write-Host "Attempting to restore from backup..." -ForegroundColor Cyan\n'
-                            '    if (Test-Path $backupDir) {\n'
-                            '        Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue\n'
-                            '        Move-Item -Path $backupDir -Destination $installDir -Force\n'
-                            '        Write-Host "Backup restored. Please try updating manually."\n'
-                            '    }\n'
-                            '    Write-Host "Press Enter to exit..."\n'
-                            '    Read-Host\n'
-                            '} finally {\n'
-                            '    Write-Host "Cleaning up..."\n'
-                            '    Remove-Item -Path $tempExtractDir -Recurse -Force -ErrorAction SilentlyContinue\n'
-                            '    Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue\n'
-                            '    Stop-Transcript\n'
-                            '    Start-Sleep -Seconds 2\n'
-                            '}\n'
-                        )
-                        f.write(script_content)
-                    
-                    command_list = ["powershell.exe", "-ExecutionPolicy", "Bypass", "-NoProfile", "-WindowStyle", "Normal", "-File", script_path]
-                    subprocess.Popen(command_list, creationflags=subprocess.CREATE_NEW_CONSOLE)
-
-                logger.info(f"Update script written to '{script_path}'. Launching execution.")
-                self.app.quit()
-
-            except Exception as e:
-                logger.error(f"Failed to create or launch updater script: {e}", exc_info=True)
-                QMessageBox.critical(self.window, "Update Error", f"Could not create the update script: {e}. Please update manually.")
+            msg_box.setDefaultButton(open_btn)
+            
+            msg_box.exec()
+            
+            if msg_box.clickedButton() == open_btn:
+                webbrowser.open(url)
         
         def _promote_widgets(self):
             self.window.audio_file_entry = self.window.findChild(QLineEdit, "audio_file_entry")
             self.window.browse_button = self.window.findChild(QPushButton, "browse_button")
-            self.window.model_dropdown = self.window.findChild(QComboBox, "model_dropdown")
             self.window.identify_speakers_checkbutton = self.window.findChild(QCheckBox, "identify_speakers_checkbutton")
             self.window.auto_merge_checkbutton = self.window.findChild(QCheckBox, "auto_merge_checkbutton")
             self.window.timestamps_checkbutton_2 = self.window.findChild(QCheckBox, "timestamps_checkbutton_2")
@@ -966,7 +582,7 @@ rm -- "$0"
         
         def get_processing_options(self):
             return {
-                constants.OPTION_MODEL: self.window.model_dropdown.currentText(), 
+                constants.OPTION_MODEL: "large",
                 constants.OPTION_DIARIZE: self.window.identify_speakers_checkbutton.isChecked(), 
                 constants.OPTION_AUTO_MERGE: self.window.auto_merge_checkbutton.isChecked(), 
                 constants.OPTION_TIMESTAMPS: self.window.timestamps_checkbutton_2.isChecked(), 
@@ -975,7 +591,6 @@ rm -- "$0"
             }
         
         def load_initial_settings(self):
-            # Visual Setup
             self.window.huggingface_token_frame.hide()
             self.window.save_token_button.setText("Manage Token")
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -984,11 +599,8 @@ rm -- "$0"
                  self.window.save_token_button.setIcon(QIcon(key_icon_path))
             
             self.window.correction_button.setEnabled(False)
-
-            self.window.model_dropdown.addItems(["tiny", "base", "small", "medium", "large (recommended)", "turbo"])
             
             saved_options = self.config_manager.load_processing_options()
-            self.window.model_dropdown.setCurrentText(saved_options.get(constants.OPTION_MODEL, "large (recommended)"))
             self.window.identify_speakers_checkbutton.setChecked(saved_options.get(constants.OPTION_DIARIZE, False))
             self.window.auto_merge_checkbutton.setChecked(saved_options.get(constants.OPTION_AUTO_MERGE, False))
             self.window.timestamps_checkbutton_2.setChecked(saved_options.get(constants.OPTION_TIMESTAMPS, True))
@@ -1005,7 +617,6 @@ rm -- "$0"
             ts_check_state = Qt.CheckState.Checked.value if is_ts_checked else Qt.CheckState.Unchecked.value
             self.toggle_timestamp_options(ts_check_state)
             
-            # Initial UI state for accordion workflow
             self._set_workflow_step(1)
             
             font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]
@@ -1125,16 +736,6 @@ rm -- "$0"
                 self._set_workflow_step(1)
                 return
             
-            if not self.config_manager.get_has_shown_performance_notice():
-                QMessageBox.information(self.window, "First-Time Processing Notice",
-                    "The first time you run a model, AutoVerse may need to download a few gigabytes of AI model files from the internet.\n\n"
-                    "---\n\n"
-                    "<b>Smart Time Estimates</b>\n\n"
-                    "For future runs, AutoVerse will provide an Estimated Time Remaining (ETR). This estimate will automatically learn from your computer's performance and become more accurate over time.\n\n"
-                    "This is a one-time message."
-                )
-                self.config_manager.set_has_shown_performance_notice(True)
-
             destination_folder = None
             if len(self.audio_file_paths) > 1:
                 destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder for Transcriptions")
@@ -1175,16 +776,8 @@ rm -- "$0"
                 elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS:
                     percentage = data
                     self.window.progress_bar.setValue(percentage)
-                    if self.current_step_start_time is not None and percentage > 2:
-                        elapsed_time = time.time() - self.current_step_start_time
-                        total_predicted_time = (elapsed_time / percentage) * 100
-                        remaining_time = total_predicted_time - elapsed_time
-                        if remaining_time > 0:
-                            self.window.status_label.setText(f"{self.original_status_text} (ETR: ~{self._format_etr(remaining_time)})")
                 elif msg_type == constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR:
-                    model_key, new_factor = data
-                    logger.info(f"Received new performance factor for '{model_key}': {new_factor:.4f}. Saving.")
-                    self.config_manager.save_performance_factor(model_key, new_factor)
+                    pass
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
                     file_info = data
                     status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
@@ -1265,7 +858,7 @@ rm -- "$0"
                 return
 
             base_name, _ = os.path.splitext(os.path.basename(result.source_file))
-            model_name = self.get_processing_options()[constants.OPTION_MODEL].split(" ")[0]
+            model_name = "large"
             default_fn = os.path.join(os.getcwd(), f"{base_name}_{model_name}_transcription.txt")
             save_path, _ = QFileDialog.getSaveFileName(self.window, "Save Transcription As", default_fn, "Text Files (*.txt)")
             
