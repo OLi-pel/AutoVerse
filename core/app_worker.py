@@ -4,20 +4,17 @@ import logging
 import os
 import sys
 import tempfile
-import torchaudio
 import traceback
 import re
-import time
-import threading
 from tinytag import TinyTag
 
 from utils import constants
 from utils.config_manager import ConfigManager
 from core.audio_processor import ProcessedAudioResult, AudioProcessor
+from moviepy.editor import AudioFileClip
 
 logger = logging.getLogger(__name__)
 
-# TqdmLogStream and TimerThread classes are correct and remain unchanged.
 class TqdmLogStream:
     def __init__(self, queue, logger_instance, level=logging.DEBUG):
         self.queue, self.logger, self.level = queue, logger_instance, level
@@ -32,23 +29,12 @@ class TqdmLogStream:
                     except (ValueError, IndexError): pass
     def flush(self): pass
 
-class TimerThread(threading.Thread):
-    def __init__(self, queue, total_seconds_predicted, stop_event):
-        super().__init__()
-        self.queue, self.total_seconds_predicted, self.stop_event = queue, max(0.1, total_seconds_predicted), stop_event
-        self.start_time = time.time()
-        self.daemon = True
-    def run(self):
-        while not self.stop_event.is_set():
-            progress = ((time.time() - self.start_time) / self.total_seconds_predicted) * 100
-            self.queue.put((constants.MSG_TYPE_REALTIME_PROGRESS, int(min(progress, 99))))
-            time.sleep(0.2)
+COMPLEX_AUDIO_EXTENSIONS = ['.m4a', '.aac', '.wma', '.ogg', '.flac']
+VIDEO_EXTENSIONS = ['.mp4', '.mkv', 'avi', '.mov', '.flv', '.wmv']
 
-# Helper functions are unchanged...
-from moviepy.editor import AudioFileClip
-COMPLEX_AUDIO_EXTENSIONS = ['.m4a', '.aac', '.wma', '.ogg', '.flac']; VIDEO_EXTENSIONS = ['.mp4', '.mkv', 'avi', '.mov', '.flv', '.wmv']
 def _is_complex_format(file_path):
     return any(file_path.lower().endswith(ext) for ext in VIDEO_EXTENSIONS + COMPLEX_AUDIO_EXTENSIONS)
+
 def _convert_to_wav(media_path):
     try:
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f: temp_path = f.name
@@ -69,17 +55,13 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
         os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]
 
     try:
-        config_manager = ConfigManager(constants.DEFAULT_CONFIG_FILE)
-        MODEL_SPEEDS = { "tiny": 10, "base": 7, "small": 4, "medium": 2, "large": 1, "turbo": 4, "diarization": 1.5 }
-
         def progress_callback(message, percentage=None):
             if percentage is not None: queue.put((constants.MSG_TYPE_PROGRESS, percentage))
             if message: queue.put((constants.MSG_TYPE_STATUS, message))
 
-        def _map_ui_model_key_to_whisper_name(ui_model_key: str) -> str:
-            return ui_model_key.split(" ")[0]
-        
-        whisper_model_name = _map_ui_model_key_to_whisper_name(options['model_key'])
+        # --- HARDCODED MODEL SELECTION ---
+        whisper_model_name = "large"
+        # ---------------------------------
 
         progress_callback("Initializing AI models (downloading if needed)...", 0)
         audio_processor = AudioProcessor(
@@ -99,32 +81,14 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                     audio_to_process = temp_audio_path
                     progress_callback("Conversion complete.", 100)
                 
-                duration_sec = (TinyTag.get(audio_to_process).duration or 1.0)
-                
                 if options['enable_diarization']:
-                    factor = config_manager.get_performance_factor("diarization")
-                    predicted_time = (duration_sec / MODEL_SPEEDS['diarization']) * factor
                     progress_callback("Identifying speakers...", 0)
-                    
-                    # --- THIS IS THE FIX ---
-                    stop_event = threading.Event()
-                    timer = TimerThread(queue, predicted_time, stop_event)
-                    timer.start()
-                    
-                    start_time = time.time()
                     try:
                         diarization_result = audio_processor.diarization_handler.diarize(audio_to_process)
                     except Exception as diar_error:
                         worker_logger.warning(f"Diarization failed for {os.path.basename(file_path)}: {diar_error}")
                         worker_logger.warning("Continuing with transcription only (no speaker identification)")
                         diarization_result = None
-                    
-                    actual_time = time.time() - start_time
-                    stop_event.set()
-                    
-                    if actual_time > 1.0 and duration_sec > 2.0:
-                        new_factor = (actual_time * MODEL_SPEEDS['diarization']) / duration_sec
-                        queue.put((constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR, ("diarization", new_factor)))
                     
                     if diarization_result is not None:
                         progress_callback("Speaker identification complete.", 100)
@@ -134,23 +98,9 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                     diarization_result = None
                 
                 model_key_simple = whisper_model_name
-                factor = config_manager.get_performance_factor(model_key_simple)
-                predicted_time = (duration_sec / MODEL_SPEEDS.get(model_key_simple, 1)) * factor
                 progress_callback(f"Transcribing with '{model_key_simple}' model...", 0)
 
-                # --- AND THIS IS THE SECOND FIX ---
-                stop_event = threading.Event()
-                timer = TimerThread(queue, predicted_time, stop_event)
-                timer.start()
-                
-                start_time = time.time()
                 transcription_result = audio_processor.transcription_handler.transcribe(audio_to_process)
-                actual_time = time.time() - start_time
-                stop_event.set()
-                
-                if actual_time > 1.0 and duration_sec > 2.0:
-                    new_factor = (actual_time * MODEL_SPEEDS.get(model_key_simple, 1)) / duration_sec
-                    queue.put((constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR, (model_key_simple, new_factor)))
                 
                 result = audio_processor.finalize_processing(diarization_result, transcription_result)
                 result.source_file = file_path

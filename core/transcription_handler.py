@@ -6,11 +6,8 @@ from utils import constants
 
 logger = logging.getLogger(__name__)
 
-# The Progress Hook class is no longer needed and has been removed.
-
 class TranscriptionHandler:
-    def __init__(self, model_name, device, progress_callback=None, cache_dir=None, queue=None):
-        # The 'queue' is no longer needed here, but we leave it for potential future use to avoid breaking the AudioProcessor signature yet
+    def __init__(self, model_name, device, progress_callback=None, cache_dir=None):
         self.model_name = model_name
         self.device = device
         self.progress_callback = progress_callback
@@ -18,7 +15,6 @@ class TranscriptionHandler:
         self.model = self._load_model()
 
     def _report_progress(self, message: str, percentage: int = None):
-        # This function is now only used for single, non-real-time messages.
         if self.progress_callback:
             try:
                 self.progress_callback(message, percentage)
@@ -30,7 +26,6 @@ class TranscriptionHandler:
 
     def _load_model(self):
         logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') on device '{self.device}'...")
-        # Note: Real-time progress is now handled entirely by the TqdmLogStream capturing the download bar.
         
         whisper_cache_path = None
         if self.cache_dir:
@@ -52,7 +47,6 @@ class TranscriptionHandler:
             return model
         except Exception as e:
             logger.error(f"Error loading Whisper model: {e}", exc_info=True)
-            # Send a failure message if loading fails.
             self._report_progress(f"Error loading model: {e}", 0)
             raise
         
@@ -63,7 +57,6 @@ class TranscriptionHandler:
         """
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
         try:
-            # THIS IS THE CRITICAL FIX: verbose=None generates the progress bar. The hooks argument is removed.
             result = self.model.transcribe(audio_path, verbose=None)
             logger.info("TranscriptionHandler: Transcription completed successfully.")
             return result

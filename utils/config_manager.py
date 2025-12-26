@@ -5,12 +5,10 @@ from . import constants
 
 TOKEN_SECTION = 'HuggingFace'
 UI_PREFERENCES_SECTION = 'UIPreferences'
-PERFORMANCE_FACTORS_SECTION = 'PerformanceFactors'
 PROCESSING_OPTIONS_SECTION = 'ProcessingOptions'
 
 USE_AUTH_TOKEN_OPTION = 'use_auth_token'; TOKEN_OPTION = 'hf_token'
 MAIN_WINDOW_SHOW_TIPS_OPTION = 'main_window_show_tips'; CORRECTION_WINDOW_SHOW_TIPS_OPTION = 'correction_window_show_tips'; STARTUP_SHOW_WELCOME_WIZARD_OPTION = 'show_welcome_wizard'
-HAS_SHOWN_PERFORMANCE_NOTICE_OPTION = 'has_shown_performance_notice'
 TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION = 'transcription_tutorial_completed'; CORRECTION_TUTORIAL_COMPLETED_OPTION = 'correction_tutorial_completed'
 LAST_SEEN_APP_VERSION_OPTION = 'last_seen_app_version'
 
@@ -35,14 +33,11 @@ class ConfigManager:
             MAIN_WINDOW_SHOW_TIPS_OPTION: 'yes',
             CORRECTION_WINDOW_SHOW_TIPS_OPTION: 'yes',
             STARTUP_SHOW_WELCOME_WIZARD_OPTION: 'yes',
-            HAS_SHOWN_PERFORMANCE_NOTICE_OPTION: 'no',
             TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION: 'no',
             CORRECTION_TUTORIAL_COMPLETED_OPTION: 'no',
             LAST_SEEN_APP_VERSION_OPTION: '0.0.0'
         })
-        self._ensure_section_exists(PERFORMANCE_FACTORS_SECTION)
         self._ensure_section_exists(PROCESSING_OPTIONS_SECTION); self.config[PROCESSING_OPTIONS_SECTION].update({
-            constants.OPTION_MODEL: 'large (recommended)',
             constants.OPTION_DIARIZE: 'no',
             constants.OPTION_AUTO_MERGE: 'no',
             constants.OPTION_TIMESTAMPS: 'yes',
@@ -82,22 +77,6 @@ class ConfigManager:
         
     def set_correction_window_show_tips(self, show_tips: bool):
         self.set(UI_PREFERENCES_SECTION, CORRECTION_WINDOW_SHOW_TIPS_OPTION, 'yes' if show_tips else 'no')
-
-    def get_performance_factor(self, model_key: str) -> float:
-        try: return self.config.getfloat(PERFORMANCE_FACTORS_SECTION, model_key)
-        except (configparser.NoSectionError, configparser.NoOptionError, ValueError): return 1.25
-
-    def save_performance_factor(self, model_key: str, factor: float):
-        old_factor = self.get_performance_factor(model_key)
-        new_avg_factor = (old_factor * 0.2) + (factor * 0.8)
-        clamped_factor = max(0.5, min(new_avg_factor, 5.0))
-        self.set(PERFORMANCE_FACTORS_SECTION, model_key, f"{clamped_factor:.4f}")
-
-    def get_has_shown_performance_notice(self) -> bool:
-        return self.get(UI_PREFERENCES_SECTION, HAS_SHOWN_PERFORMANCE_NOTICE_OPTION, 'no').lower() == 'yes'
-        
-    def set_has_shown_performance_notice(self, has_shown: bool):
-        self.set(UI_PREFERENCES_SECTION, HAS_SHOWN_PERFORMANCE_NOTICE_OPTION, 'yes' if has_shown else 'no')
     
     def get_transcription_tutorial_completed(self) -> bool:
         return self.get(UI_PREFERENCES_SECTION, TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION, 'no').lower() == 'yes'
@@ -112,12 +91,12 @@ class ConfigManager:
         self.set(UI_PREFERENCES_SECTION, CORRECTION_TUTORIAL_COMPLETED_OPTION, 'yes' if completed else 'no')
     
     def reset_all_tutorials(self):
-        """Reset all tutorial completion flags - useful for testing"""
         self.set_transcription_tutorial_completed(False)
         self.set_correction_tutorial_completed(False)
     
     def save_processing_options(self, options_dict):
       for key, value in options_dict.items():
+          if key == constants.OPTION_MODEL: continue 
           if isinstance(value, bool):
               self.set(PROCESSING_OPTIONS_SECTION, key, 'yes' if value else 'no')
           else:
@@ -125,7 +104,7 @@ class ConfigManager:
     
     def load_processing_options(self):
       return {
-          constants.OPTION_MODEL: self.get(PROCESSING_OPTIONS_SECTION, constants.OPTION_MODEL, 'large (recommended)'),
+          constants.OPTION_MODEL: 'large', 
           constants.OPTION_DIARIZE: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_DIARIZE, fallback=False),
           constants.OPTION_AUTO_MERGE: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_AUTO_MERGE, fallback=False),
           constants.OPTION_TIMESTAMPS: self.config.getboolean(PROCESSING_OPTIONS_SECTION, constants.OPTION_TIMESTAMPS, fallback=True),

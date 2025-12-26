@@ -2,7 +2,6 @@
 import logging
 import torch
 import os
-import time 
 import traceback
 
 from utils import constants
@@ -12,34 +11,31 @@ from .transcription_handler import TranscriptionHandler
 logger = logging.getLogger(__name__)
 
 class ProcessedAudioResult:
-    # --- FIX #2: Update the __init__ method ---
     def __init__(self, status, data=None, message=None, is_plain_text_output=False, source_file=None):
         self.status = status 
         self.data = data
         self.message = message
         self.is_plain_text_output = is_plain_text_output
-        self.source_file = source_file # Store the original source file path
+        self.source_file = source_file 
 
 class AudioProcessor:
     def __init__(self, config: dict, progress_callback=None, 
                  enable_diarization=True, include_timestamps=True, 
                  include_end_times=False, enable_auto_merge=False, 
-                 cache_dir=None, logger_instance=None, queue=None):
+                 cache_dir=None, logger_instance=None):
         
         self.logger = logger_instance if logger_instance else logger
-        self.queue = queue
         
         try:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             self.progress_callback = progress_callback
-            # We still need to store these options for the finalize step
             self.output_include_timestamps = include_timestamps
             self.output_include_end_times = include_end_times
             self.output_enable_auto_merge = enable_auto_merge
             
-            # --- Sequenced Initialization ---
             whisper_model_name = config.get('transcription', {}).get('model_name', 'large')
             if self.progress_callback: self.progress_callback(f"Loading/Downloading '{whisper_model_name}' transcription model...", 0)
+            
             self.transcription_handler = TranscriptionHandler(
                 model_name=whisper_model_name, device=self.device, cache_dir=cache_dir
             )
@@ -60,19 +56,13 @@ class AudioProcessor:
             self.logger.error(f"CRITICAL FAILURE during AudioProcessor initialization:\n{full_traceback}")
             self._initialization_error = full_traceback
 
-    # --- FIX #1: Create the new finalize_processing method ---
     def finalize_processing(self, diarization_result, transcription_result) -> ProcessedAudioResult:
-        """
-        Takes the raw results from the AI models and performs the final alignment,
-        merging, and formatting steps.
-        """
         try:
             if not transcription_result or 'segments' not in transcription_result or not transcription_result['segments']:
                 return ProcessedAudioResult(status=constants.STATUS_EMPTY, message="No speech detected.")
 
             if self.progress_callback: self.progress_callback("Finalizing results...", 0)
             
-            # Check if diarization was actually performed for this run
             diarization_was_performed = diarization_result is not None
 
             is_plain_text = not self.output_include_timestamps and not diarization_was_performed
@@ -105,8 +95,6 @@ class AudioProcessor:
             self.logger.error(f"CRITICAL FAILURE during finalize_processing:\n{full_traceback}")
             return ProcessedAudioResult(status=constants.STATUS_ERROR, message=full_traceback)
 
-
-    # (All helper methods below this line are unchanged and are now used by finalize_processing)
     def _align_outputs(self, diarization_annotation, transcription_result_dict, diarization_actually_performed):
         if not transcription_result_dict or not transcription_result_dict.get('segments'): return []
         transcription_segments = transcription_result_dict['segments']; aligned_segment_dicts = []
