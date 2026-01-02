@@ -1,66 +1,80 @@
 # ui/widgets/collapsible_box.py
 
-from PySide6.QtCore import (Qt, QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, Slot, QSize)
+from PySide6.QtCore import (Qt, QParallelAnimationGroup, QPropertyAnimation, QAbstractAnimation, Slot, QSize, QEasingCurve)
 from PySide6.QtWidgets import (QWidget, QToolButton, QFrame, QVBoxLayout, QSizePolicy, QLabel, QHBoxLayout)
 
 class CollapsibleBox(QWidget):
     def __init__(self, title="", summary="", parent=None, is_compact=False):
         super(CollapsibleBox, self).__init__(parent)
 
-        self.toggle_button = QToolButton()
+        # --- Header Section ---
+        self.header_frame = QFrame()
+        self.header_frame.setObjectName("HeaderFrame")
+        
+        self.toggle_button = QToolButton(self.header_frame)
         self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.toggle_button.setArrowType(Qt.ArrowType.RightArrow)
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(False)
+        self.toggle_button.setStyleSheet("""
+            QToolButton {
+                border: none;
+                background-color: transparent;
+                color: #e0e0e0;
+            }
+            QToolButton:hover {
+                background-color: rgba(255, 255, 255, 10);
+                border-radius: 4px;
+            }
+        """)
 
-        self.title_label = QLabel(title)
+        self.title_label = QLabel(title, self.header_frame)
+        self.title_label.setObjectName("TitleLabel")
         self.title_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         
-        self.summary_label = QLabel(summary)
+        self.summary_label = QLabel(summary, self.header_frame)
+        self.summary_label.setObjectName("SummaryLabel")
         self.summary_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.summary_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.summary_label.setStyleSheet("color: #707070;")
+        self.summary_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.content_area = QWidget()
-        self.content_area.setMaximumHeight(0)
-        self.content_area.setMinimumHeight(0)
-        self.content_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.box_layout = QVBoxLayout(self.content_area)
-        
-        # --- Style Changes based on is_compact flag ---
-        if is_compact:
-            self.toggle_button.setStyleSheet("QToolButton { border: none; font-weight: normal; font-size: 9pt; }")
-            # --- THE FIX for the icon size ---
-            self.toggle_button.setIconSize(QSize(8, 8))
-            self.toggle_button.setMaximumSize(18, 18)
-            self.title_label.setStyleSheet("font-weight: normal; font-size: 9pt;")
-            self.box_layout.setContentsMargins(15, 2, 5, 2)
-            self.box_layout.setSpacing(2)
-        else:
-            self.toggle_button.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
-            self.title_label.setStyleSheet("font-weight: bold;")
-            self.box_layout.setContentsMargins(15, 5, 5, 5)
-            self.box_layout.setSpacing(5)
-
-        # Animation Setup
-        self.toggle_animation = QParallelAnimationGroup(self)
-        self.content_animation = QPropertyAnimation(self.content_area, b"maximumHeight")
-        self.content_animation.setDuration(300)
-        self.toggle_animation.addAnimation(self.content_animation)
-        
         # Header Layout
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout = QHBoxLayout(self.header_frame)
+        # Revert to simpler margins
+        header_layout.setContentsMargins(5, 5, 5, 5) 
         header_layout.setSpacing(5)
         header_layout.addWidget(self.toggle_button)
         header_layout.addWidget(self.title_label)
         header_layout.addWidget(self.summary_label)
+
+        # --- Content Section ---
+        self.content_area = QWidget()
+        self.content_area.setMaximumHeight(0)
+        self.content_area.setMinimumHeight(0)
+        self.content_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         
-        # Main layout
+        self.box_layout = QVBoxLayout(self.content_area)
+        
+        if is_compact:
+            self.toggle_button.setIconSize(QSize(8, 8))
+            self.title_label.setStyleSheet("font-size: 12px; font-weight: normal;")
+            self.box_layout.setContentsMargins(15, 0, 0, 5)
+            self.box_layout.setSpacing(5)
+        else:
+            self.box_layout.setContentsMargins(10, 10, 10, 10)
+            self.box_layout.setSpacing(10)
+
+        # --- Animation Setup ---
+        self.toggle_animation = QParallelAnimationGroup(self)
+        self.content_animation = QPropertyAnimation(self.content_area, b"maximumHeight")
+        self.content_animation.setDuration(250)
+        self.content_animation.setEasingCurve(QEasingCurve.InOutQuad) 
+        self.toggle_animation.addAnimation(self.content_animation)
+        
+        # --- Main Layout ---
         main_layout = QVBoxLayout(self)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addLayout(header_layout)
+        main_layout.addWidget(self.header_frame)
         main_layout.addWidget(self.content_area)
 
         self.toggle_button.clicked.connect(self._toggle_collapsible)

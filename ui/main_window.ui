@@ -690,6 +690,213 @@
           </item>
          </layout>
         </widget>
+        <widget class="QWidget" name="tab_3">
+         <attribute name="title">
+          <string>Settings</string>
+         </attribute>
+         <layout class="QVBoxLayout" name="verticalLayout_settings">
+          <item>
+           <widget class="QGroupBox" name="appearance_group">
+            <property name="title">
+             <string>Appearance &amp; Language</string>
+            </property>
+            <layout class="QFormLayout" name="formLayout_appearance">
+             <item row="0" column="0">
+              <widget class="QLabel" name="label_theme">
+               <property name="text">
+                <string>Theme:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QComboBox" name="settings_theme_combo">
+               <item>
+                <property name="text">
+                 <string>System</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Light</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Dark</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="label_lang">
+               <property name="text">
+                <string>Language:</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QComboBox" name="settings_language_combo">
+                <item>
+                <property name="text">
+                 <string>English</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Français</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Español</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="application_group">
+            <property name="title">
+             <string>Application Settings</string>
+            </property>
+            <layout class="QVBoxLayout" name="verticalLayout_app">
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_updates">
+               <item>
+                <widget class="QLabel" name="label_updates">
+                 <property name="text">
+                  <string>Updates:</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="settings_check_updates_btn">
+                 <property name="text">
+                  <string>Check for Updates</string>
+                 </property>
+                 <property name="icon">
+                  <iconset theme="QIcon::ThemeIcon::SystemSoftwareUpdate"/>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer_updates">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="Line" name="line_2">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="horizontalLayout_data">
+               <item>
+                <widget class="QPushButton" name="settings_reset_tutorials_btn">
+                 <property name="text">
+                  <string>Reset Tutorials</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="settings_clear_cache_btn">
+                 <property name="text">
+                  <string>Clear Cache</string>
+                 </property>
+                 <property name="toolTip">
+                    <string>Clears downloaded models and temporary audio files.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="horizontalSpacer_data">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="danger_zone_group">
+            <property name="title">
+             <string>Danger Zone</string>
+            </property>
+            <property name="styleSheet">
+             <string>QGroupBox { border: 1px solid #d13438; margin-top: 6px; } QGroupBox::title { color: #d13438; }</string>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_danger">
+             <item>
+              <widget class="QLabel" name="label_delete_desc">
+               <property name="text">
+                <string>Reset all application settings, tokens, and history.</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="horizontalSpacer_danger">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+             <item>
+              <widget class="QPushButton" name="settings_reset_app_btn">
+               <property name="text">
+                <string>Reset Application Data</string>
+               </property>
+               <property name="styleSheet">
+                <string>QPushButton { background-color: #d13438; color: white; border: none; padding: 5px 10px; } QPushButton:hover { background-color: #a80000; }</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <spacer name="verticalSpacer_settings">
+            <property name="orientation">
+             <enum>Qt::Orientation::Vertical</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>20</width>
+              <height>40</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
        </widget>
       </item>
      </layout>

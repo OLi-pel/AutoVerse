@@ -52,6 +52,7 @@ def run_app():
     from utils import constants
     from utils.config_manager import ConfigManager
     from ui.correction_view_logic import CorrectionViewLogic
+    from ui.settings_logic import SettingsLogic
     from core.app_worker import processing_worker_function
     from core.audio_processor import AudioProcessor
     from ui.selectable_text_edit import SelectableTextEdit
@@ -200,10 +201,14 @@ def run_app():
 
     class UpdateChecker(QThread):
         update_available = Signal(str, str, str)
-        def __init__(self, owner, repo):
+        no_update_signal = Signal()
+        error_signal = Signal(str)
+
+        def __init__(self, owner, repo, manual_check=False):
             super().__init__()
             self.owner = owner
             self.repo = repo
+            self.manual_check = manual_check
             
         def run(self):
             try:
@@ -223,10 +228,15 @@ def run_app():
                         latest_release.get("body", "No release notes available."),
                         release_url
                     )
+                else:
+                    if self.manual_check:
+                        self.no_update_signal.emit()
             except requests.RequestException as e:
                 logger.warning(f"Could not check for updates (network issue): {e}")
+                if self.manual_check: self.error_signal.emit(str(e))
             except Exception as e:
                 logger.error(f"An unexpected error occurred during update check: {e}", exc_info=True)
+                if self.manual_check: self.error_signal.emit(str(e))
 
     class MainApplication(QObject):
         def __init__(self, app_instance):
@@ -252,7 +262,10 @@ def run_app():
             self._setup_main_workflow_layout()
             self._setup_nested_collapsible_options()
 
+            # Logic Controllers
             self.correction_logic = CorrectionViewLogic(self.window, self)
+            self.settings_logic = SettingsLogic(self.window, self)
+
             self.tip_widgets = {
                 self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
@@ -282,9 +295,7 @@ def run_app():
         def run_startup_logic(self):
             if getattr(sys, 'frozen', False):
                 logger.info("Application is frozen, initializing update check.")
-                self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse")
-                self.update_checker.update_available.connect(self.prompt_for_update)
-                self.update_checker.start()
+                self.check_for_updates_automatic()
             else:
                 logger.info("Application not frozen. Skipping update check.")
 
@@ -310,6 +321,18 @@ def run_app():
             
             if user_choice == 'tutorial':
                 QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
+        
+        def check_for_updates_automatic(self):
+            self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse", manual_check=False)
+            self.update_checker.update_available.connect(self.prompt_for_update)
+            self.update_checker.start()
+
+        def check_for_updates_manual(self):
+            self.manual_update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse", manual_check=True)
+            self.manual_update_checker.update_available.connect(self.prompt_for_update)
+            self.manual_update_checker.no_update_signal.connect(lambda: QMessageBox.information(self.window, "Updates", "You are up to date!"))
+            self.manual_update_checker.error_signal.connect(lambda msg: QMessageBox.warning(self.window, "Update Error", f"Could not check for updates: {msg}"))
+            self.manual_update_checker.start()
         
         def _setup_tutorial_menu(self):
             menu_bar = self.window.menuBar()
@@ -776,8 +799,6 @@ def run_app():
                 elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS:
                     percentage = data
                     self.window.progress_bar.setValue(percentage)
-                elif msg_type == constants.MSG_TYPE_SAVE_PERFORMANCE_FACTOR:
-                    pass
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
                     file_info = data
                     status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"

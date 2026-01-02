@@ -4,7 +4,7 @@ import sys
 import logging
 
 # --- Application Version ---
-APP_VERSION = "1.0.7" 
+APP_VERSION = "1.0.8" 
 
 # --- User-specific Application Data Directory ---
 APP_NAME = "AutoVerse"
@@ -57,6 +57,9 @@ OPTION_AUTO_MERGE = 'auto_merge'
 OPTION_TIMESTAMPS = 'include_timestamps'
 OPTION_END_TIMES = 'include_end_times'
 
+# --- UI Option Keys ---
+OPTION_THEME = 'app_theme'
+OPTION_LANGUAGE = 'app_language'
 
 # --- Special Labels ---
 NO_SPEAKER_LABEL = "SPEAKER_NONE_INTERNAL"

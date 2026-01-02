@@ -35,7 +35,9 @@ class ConfigManager:
             STARTUP_SHOW_WELCOME_WIZARD_OPTION: 'yes',
             TRANSCRIPTION_TUTORIAL_COMPLETED_OPTION: 'no',
             CORRECTION_TUTORIAL_COMPLETED_OPTION: 'no',
-            LAST_SEEN_APP_VERSION_OPTION: '0.0.0'
+            LAST_SEEN_APP_VERSION_OPTION: '0.0.0',
+            constants.OPTION_THEME: 'System',
+            constants.OPTION_LANGUAGE: 'English'
         })
         self._ensure_section_exists(PROCESSING_OPTIONS_SECTION); self.config[PROCESSING_OPTIONS_SECTION].update({
             constants.OPTION_DIARIZE: 'no',
@@ -93,6 +95,18 @@ class ConfigManager:
     def reset_all_tutorials(self):
         self.set_transcription_tutorial_completed(False)
         self.set_correction_tutorial_completed(False)
+        
+    def get_theme(self) -> str:
+        return self.get(UI_PREFERENCES_SECTION, constants.OPTION_THEME, 'System')
+    
+    def set_theme(self, theme: str):
+        self.set(UI_PREFERENCES_SECTION, constants.OPTION_THEME, theme)
+
+    def get_language(self) -> str:
+        return self.get(UI_PREFERENCES_SECTION, constants.OPTION_LANGUAGE, 'English')
+    
+    def set_language(self, language: str):
+        self.set(UI_PREFERENCES_SECTION, constants.OPTION_LANGUAGE, language)
     
     def save_processing_options(self, options_dict):
       for key, value in options_dict.items():

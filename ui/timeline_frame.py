@@ -21,11 +21,13 @@ class WaveformFrame(QFrame):
         self.start_bar_pos_secs = 0.0
         self._dragging_bar = None
 
-        self.wave_color = QColor("#909090")
-        self.progress_color = QColor("#0078d4")
-        self.cursor_color = QColor("#d13438")
-        self.background_color = QColor("#595656")
-        self.start_bar_color = QColor(Qt.cyan)
+        # --- Updated Colors for Dark Theme ---
+        self.wave_color = QColor("#00b7c3")       # Teal/Cyan (Modern tech feel)
+        self.progress_color = QColor("#ffffff")   # White for the part already played
+        self.cursor_color = QColor("#ffaa00")     # Bright Orange playhead cursor
+        self.background_color = QColor("#1e1e1e") # Dark Grey background
+        self.start_bar_color = QColor("#ff00ff")  # Magenta for timestamp editing
+        
         self.amplitude_scale = 4.5
 
     def set_waveform_data(self, data):
@@ -62,6 +64,7 @@ class WaveformFrame(QFrame):
         def get_scaled_line_height(sample_value):
             return max(-h_half, min(sample_value * h_half * self.amplitude_scale, h_half))
 
+        # Draw the "future" wave (unplayed)
         painter.setPen(QPen(self.wave_color, 1))
         for i in range(w):
             data_index = int((i / w) * data_len)
@@ -69,6 +72,7 @@ class WaveformFrame(QFrame):
                 line_height = get_scaled_line_height(self._waveform_data[data_index])
                 painter.drawLine(i, int(h_half - line_height), i, int(h_half + line_height))
 
+        # Draw the "past" wave (played) over the top
         progress_x = int((self._progress / self._duration) * w)
         painter.setPen(QPen(self.progress_color, 1))
         for i in range(progress_x):
@@ -77,8 +81,10 @@ class WaveformFrame(QFrame):
                 line_height = get_scaled_line_height(self._waveform_data[data_index])
                 painter.drawLine(i, int(h_half - line_height), i, int(h_half + line_height))
 
+        # Draw Playhead
         painter.setPen(QPen(self.cursor_color, 2)); painter.drawLine(progress_x, 0, progress_x, h)
         
+        # Draw Edit Mode Marker (if active)
         if self.edit_mode_active:
             start_x = int((self.start_bar_pos_secs / self._duration) * w)
             painter.setPen(QPen(self.start_bar_color, 2, Qt.DashLine))
