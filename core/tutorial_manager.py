@@ -7,6 +7,8 @@ import sys
 from PySide6.QtWidgets import QWidget, QCheckBox, QComboBox
 from PySide6.QtCore import QTimer, Qt, QObject
 
+from utils import translations
+
 logger = logging.getLogger(__name__)
 
 class TutorialManager(QObject):
@@ -57,17 +59,28 @@ class TutorialManager(QObject):
 
     def start_tutorial(self, tutorial_name):
         if self.is_active: return
-        if tutorial_name not in self.tutorials: return
+        
+        # Determine language
+        current_lang = self.main_app.config_manager.get_language()
+        
+        # Fallback to English if language key is missing in JSON
+        lang_tutorials = self.tutorials.get(current_lang, self.tutorials.get("English", {}))
+        
+        if tutorial_name not in lang_tutorials:
+            # Fallback to English specific tutorial if missing in current lang
+            lang_tutorials = self.tutorials.get("English", {})
+            if tutorial_name not in lang_tutorials:
+                return
         
         self.main_app.window.main_tab_widget.setCurrentIndex(0)
-        self._start_tutorial_flow(tutorial_name)
+        self._start_tutorial_flow(tutorial_name, lang_tutorials)
     
-    def _start_tutorial_flow(self, tutorial_name):
+    def _start_tutorial_flow(self, tutorial_name, tutorial_collection):
         self._reset_ui_for_tutorial()
         
         self.is_active = True
         self.current_tutorial_name = tutorial_name
-        self.current_tutorial = self.tutorials[tutorial_name]
+        self.current_tutorial = tutorial_collection[tutorial_name]
         self.current_step_index = 0
         self.show_step(self.current_step_index)
         self.overlay.show()
@@ -83,7 +96,12 @@ class TutorialManager(QObject):
         self.main_app.audio_file_paths = []
         self.main_app.last_single_file_result_path = None
         self.main_app.window.output_text_area.clear()
-        self.main_app.window.status_label.setText("Ready")
+        
+        # Localize "Ready" status
+        lang = self.main_app.config_manager.get_language()
+        status_ready = "Prêt" if lang == "Français" else "Ready"
+        self.main_app.window.status_label.setText(status_ready)
+        
         self.main_app.window.progress_bar.setValue(0)
         self.main_app.window.correction_button.setEnabled(False)
         self.main_app.step1_box.set_summary_text("")
@@ -121,6 +139,16 @@ class TutorialManager(QObject):
         is_passive = step_data.get("type") == "passive"
         allow_interaction = validation.get("allow_interaction", False) or validation_type == "wait_for_selection"
         disable_prev_button = step_data.get("disable_prev", False)
+        
+        # Update button text based on language
+        lang = self.main_app.config_manager.get_language()
+        if self.overlay:
+            self.overlay.next_button.setText(translations.get_text("tut_finish", lang) if index == len(self.current_tutorial) - 1 else translations.get_text("tut_next", lang))
+            self.overlay.prev_button.setText(translations.get_text("tut_prev", lang))
+            self.overlay.exit_button.setText(translations.get_text("tut_exit", lang))
+
+        # We construct the "Step X of Y" string here or let overlay handle it if we passed strings
+        step_str = translations.get_text("tut_step_of", lang, index + 1, len(self.current_tutorial))
 
         self.overlay.show_step(
             target_widget=self.current_target_widget,
@@ -132,6 +160,9 @@ class TutorialManager(QObject):
             disable_prev_button=disable_prev_button,
             highlight_secondary_widgets=highlight_widgets
         )
+        
+        # Override the step label manually after show_step because overlay logic hardcodes English
+        self.overlay.step_label.setText(step_str)
         
         if not self.overlay.isVisible(): self.overlay.show()
         self.overlay.update()
@@ -244,8 +275,14 @@ class TutorialManager(QObject):
     def resume_tutorial(self):
         if not self.paused_state: return
         name, step = self.paused_state["name"], self.paused_state["step"]
+        
+        # Re-fetch tutorials in case language changed
+        current_lang = self.main_app.config_manager.get_language()
+        lang_tutorials = self.tutorials.get(current_lang, self.tutorials.get("English", {}))
+        
         self.is_active = True
-        self.current_tutorial_name, self.current_tutorial = name, self.tutorials[name]
+        self.current_tutorial_name = name
+        self.current_tutorial = lang_tutorials[name] # Use localized version
         self.current_step_index = step
         self.show_step(self.current_step_index)
         self.overlay.show()

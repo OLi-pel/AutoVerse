@@ -57,8 +57,7 @@ class SettingsLogic(QObject):
     def on_theme_changed(self, theme_name):
         self.config_manager.set_theme(theme_name)
         self.apply_theme(theme_name)
-        QMessageBox.information(self.main_window, "Theme Changed", 
-                              f"Theme set to {theme_name}.")
+        # QMessageBox.information(self.main_window, "Theme Changed", f"Theme set to {theme_name}.")
 
     def apply_theme(self, theme_name):
         app = QApplication.instance()
@@ -88,7 +87,6 @@ class SettingsLogic(QObject):
             app.setStyleSheet("")
             
         else: # System
-            # Reset to default style (usually windowsvista on Windows, macos on Mac)
             if sys.platform == 'win32':
                 if 'windowsvista' in QStyleFactory.keys():
                     app.setStyle('windowsvista')
@@ -96,17 +94,15 @@ class SettingsLogic(QObject):
                  if 'macos' in QStyleFactory.keys():
                     app.setStyle('macos')
             
-            # Reset palette to default
             app.setPalette(QApplication.style().standardPalette())
             app.setStyleSheet("")
 
     @Slot(str)
     def on_language_changed(self, lang_name):
         self.config_manager.set_language(lang_name)
-        QMessageBox.information(self.main_window, "Language Changed", 
-                                "Please restart the application for language changes to take full effect.\n\n"
-                                "(Note: Only English is fully supported in this version. "
-                                "This is a placeholder for future translations.)")
+        self.main_app.current_language = lang_name
+        self.main_app.retranslateUi()
+        # QMessageBox.information(self.main_window, "Language Changed", f"Language changed to {lang_name}.")
 
     @Slot()
     def on_check_updates_clicked(self):
@@ -121,7 +117,7 @@ class SettingsLogic(QObject):
     def on_reset_tutorials_clicked(self):
         self.config_manager.reset_all_tutorials()
         QMessageBox.information(self.main_window, "Tutorials Reset", 
-                                "All tutorials have been reset. They will appear again when you next use the relevant features.")
+                                "All tutorials have been reset.")
 
     @Slot()
     def on_clear_cache_clicked(self):
@@ -155,10 +151,6 @@ class SettingsLogic(QObject):
                 # Delete config file
                 if os.path.exists(constants.DEFAULT_CONFIG_FILE):
                     os.remove(constants.DEFAULT_CONFIG_FILE)
-                
-                # We don't delete the entire APP_USER_DATA_DIR because it might contain
-                # logs or other things useful for debugging, but let's clear the specific files.
-                # Just config is usually enough to "reset" the user experience.
                 
                 QMessageBox.information(self.main_window, "Reset Complete", 
                                       "Application has been reset. It will now close.")

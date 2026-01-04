@@ -37,7 +37,7 @@ class ConfigManager:
             CORRECTION_TUTORIAL_COMPLETED_OPTION: 'no',
             LAST_SEEN_APP_VERSION_OPTION: '0.0.0',
             constants.OPTION_THEME: 'System',
-            constants.OPTION_LANGUAGE: 'English'
+            constants.OPTION_LANGUAGE: 'Français'  # DEFAULT LANGUAGE IS NOW FRENCH
         })
         self._ensure_section_exists(PROCESSING_OPTIONS_SECTION); self.config[PROCESSING_OPTIONS_SECTION].update({
             constants.OPTION_DIARIZE: 'no',
@@ -103,7 +103,9 @@ class ConfigManager:
         self.set(UI_PREFERENCES_SECTION, constants.OPTION_THEME, theme)
 
     def get_language(self) -> str:
-        return self.get(UI_PREFERENCES_SECTION, constants.OPTION_LANGUAGE, 'English')
+        # Default fallback is now Français if key is missing, 
+        # though _create_default_config_in_memory handles new installs.
+        return self.get(UI_PREFERENCES_SECTION, constants.OPTION_LANGUAGE, 'Français')
     
     def set_language(self, language: str):
         self.set(UI_PREFERENCES_SECTION, constants.OPTION_LANGUAGE, language)

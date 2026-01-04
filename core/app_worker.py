@@ -17,17 +17,40 @@ logger = logging.getLogger(__name__)
 
 class TqdmLogStream:
     def __init__(self, queue, logger_instance, level=logging.DEBUG):
-        self.queue, self.logger, self.level = queue, logger_instance, level
+        self.queue = queue
+        self.logger = logger_instance
+        self.level = level
+        # Matches numbers followed by %| (e.g., " 30%|")
         self.progress_regex = re.compile(r"(\d+)\s*%\|")
+        self.buffer = ""
+
     def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            if line.strip():
-                self.logger.log(self.level, line.rstrip())
+        # Handle carriage returns which tqdm uses for progress updates
+        # We replace \r with \n so splitlines treats them as separate updates
+        clean_buf = buf.replace('\r', '\n')
+        
+        for line in clean_buf.splitlines():
+            line = line.strip()
+            if line:
+                # Log to file (optional, might be too verbose for progress bars)
+                # self.logger.log(self.level, line) 
+                
+                # Check for progress percentage
                 match = self.progress_regex.search(line)
                 if match:
-                    try: self.queue.put((constants.MSG_TYPE_REALTIME_PROGRESS, int(match.group(1))))
-                    except (ValueError, IndexError): pass
-    def flush(self): pass
+                    try: 
+                        percentage = int(match.group(1))
+                        self.queue.put((constants.MSG_TYPE_REALTIME_PROGRESS, percentage))
+                    except (ValueError, IndexError): 
+                        pass
+
+    def flush(self): 
+        pass
+
+    def isatty(self):
+        # Crucial: Tells libraries like Whisper that this is a terminal,
+        # forcing them to output the progress bar.
+        return True
 
 COMPLEX_AUDIO_EXTENSIONS = ['.m4a', '.aac', '.wma', '.ogg', '.flac']
 VIDEO_EXTENSIONS = ['.mp4', '.mkv', 'avi', '.mov', '.flv', '.wmv']
@@ -49,7 +72,10 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
     os.makedirs(log_dir, exist_ok=True); worker_log_path = os.path.join(log_dir, "worker.log")
     file_handler = logging.FileHandler(worker_log_path, mode='w', encoding='utf-8'); formatter = logging.Formatter(constants.LOG_FORMAT, datefmt=constants.LOG_DATE_FORMAT); file_handler.setFormatter(formatter)
     worker_logger = logging.getLogger("WorkerLogger"); worker_logger.addHandler(file_handler); worker_logger.setLevel(constants.LOG_LEVEL_DEBUG)
-    sys.stdout = TqdmLogStream(queue, worker_logger, level=logging.INFO); sys.stderr = TqdmLogStream(queue, worker_logger, level=logging.ERROR)
+    
+    # Redirect stdout and stderr to capture tqdm output
+    sys.stdout = TqdmLogStream(queue, worker_logger, level=logging.INFO)
+    sys.stderr = TqdmLogStream(queue, worker_logger, level=logging.ERROR)
     
     if ffmpeg_path and os.path.exists(ffmpeg_path):
         os.environ["PATH"] = os.path.dirname(ffmpeg_path) + os.pathsep + os.environ["PATH"]

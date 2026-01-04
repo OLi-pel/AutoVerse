@@ -90,13 +90,27 @@ class CorrectionViewLogic(QObject):
         self._cleaned_up = False
 
     def set_tips_enabled(self, is_enabled):
-            for widget, tip_key in self.tip_widgets.items():
+        # We need the current language. If available from main_app, use it.
+        lang = "Français" # Default fallback
+        if self.main_app and hasattr(self.main_app, 'config_manager'):
+            lang = self.main_app.config_manager.get_language()
+            
+        for widget, tip_key in self.tip_widgets.items():
+            if widget:
+                if is_enabled:
+                    tip_text = tips_data.get_tip(tip_key, lang)
+                    widget.setStatusTip(tip_text or "")
+                else:
+                    widget.setStatusTip("")
+
+    def update_tips_language(self, lang):
+        """Called when language changes to refresh tips."""
+        # Only update if tips are currently enabled
+        if self.main_app and self.main_app.window.show_tips_checkbox.isChecked():
+             for widget, tip_key in self.tip_widgets.items():
                 if widget:
-                    if is_enabled:
-                        tip_text = tips_data.get_tip("correction_window", tip_key)
-                        widget.setStatusTip(tip_text or "")
-                    else:
-                        widget.setStatusTip("")
+                    tip_text = tips_data.get_tip(tip_key, lang)
+                    widget.setStatusTip(tip_text or "")
 
     def connect_audio_player_signals(self):
         self.audio_player.progress.connect(self.update_audio_progress)
