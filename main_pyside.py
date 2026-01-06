@@ -7,6 +7,41 @@ import collections # Added: Required for the AudioMetaData fix
 import logging
 
 # ==============================================================================
+# FIX: GLOBAL TORCHAUDIO POLYFILL (Must be at top level for Multiprocessing)
+# ==============================================================================
+try:
+    import torch
+    import torchaudio
+    
+    # 1. Polyfill list_audio_backends (Missing in torchaudio 2.1+)
+    if not hasattr(torchaudio, 'list_audio_backends'):
+        def _list_audio_backends():
+            return ['soundfile', 'ffmpeg'] 
+        setattr(torchaudio, 'list_audio_backends', _list_audio_backends)
+    
+    # 2. Polyfill get_audio_backend
+    if not hasattr(torchaudio, 'get_audio_backend'):
+        def _get_audio_backend():
+            return 'soundfile'
+        setattr(torchaudio, 'get_audio_backend', _get_audio_backend)
+
+    # 3. Polyfill AudioMetaData (Missing/Moved in newer versions)
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        try:
+            from torchaudio.backend.common import AudioMetaData
+            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
+        except ImportError:
+            # Create it manually if completely missing
+            AudioMetaData = collections.namedtuple(
+                'AudioMetaData', 
+                ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
+            )
+            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
+except Exception as e:
+    print(f"Warning: Failed to apply Global AudioMetaData fix: {e}")
+# ==============================================================================
+
+# ==============================================================================
 # FIX 1: Enable PyTorch MPS Fallback (Prevents macOS crash on specific ops)
 # ==============================================================================
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -241,43 +276,6 @@ def run_app():
     """
     Contains all application logic and imports.
     """
-    # ==============================================================================
-    # FIX 2: FORCE-CREATE AudioMetaData & BACKENDS (The "Nuclear" Fix for macOS/New Torch)
-    # Placed here inside run_app to ensure imports work correctly.
-    # ==============================================================================
-    try:
-        import torch 
-        import torchaudio
-        
-        # --- NEW FIX: Polyfill list_audio_backends for torchaudio 2.1+ ---
-        if not hasattr(torchaudio, 'list_audio_backends'):
-            def _list_audio_backends():
-                # Return standard backends available on macOS
-                return ['soundfile', 'ffmpeg'] 
-            setattr(torchaudio, 'list_audio_backends', _list_audio_backends)
-        
-        # --- NEW FIX: Polyfill get_audio_backend just in case ---
-        if not hasattr(torchaudio, 'get_audio_backend'):
-            def _get_audio_backend():
-                return 'soundfile'
-            setattr(torchaudio, 'get_audio_backend', _get_audio_backend)
-        # -----------------------------------------------------------------
-
-        if not hasattr(torchaudio, 'AudioMetaData'):
-            try:
-                from torchaudio.backend.common import AudioMetaData
-                setattr(torchaudio, 'AudioMetaData', AudioMetaData)
-            except ImportError:
-                # If completely missing (newest versions), CREATE IT manually
-                AudioMetaData = collections.namedtuple(
-                    'AudioMetaData', 
-                    ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
-                )
-                setattr(torchaudio, 'AudioMetaData', AudioMetaData)
-    except Exception as e:
-        print(f"Warning: Failed to apply AudioMetaData/Backend fix: {e}")
-    # ==============================================================================
-
     # --- FIX: Preload Torch DLLs on Windows to prevent WinError 1114 ---
     if sys.platform == 'win32':
         import ctypes
