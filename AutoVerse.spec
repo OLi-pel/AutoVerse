@@ -32,8 +32,20 @@ datas = [
 
 torch_binaries = []
 if sys.platform == 'win32':
-    if os.path.exists(torch_lib_path):
-        torch_binaries.append((os.path.join(torch_lib_path, '*.dll'), os.path.join('torch', 'lib')))
+    # Explicitly find the site-packages/torch/lib directory
+    # We use a dummy import to find the path reliably on the build machine
+    import torch
+    torch_root = os.path.dirname(torch.__file__)
+    torch_lib = os.path.join(torch_root, 'lib')
+    
+    if os.path.exists(torch_lib):
+        # 1. Add everything in torch/lib to torch/lib in the bundle
+        torch_binaries.append((os.path.join(torch_lib, '*'), os.path.join('torch', 'lib')))
+        
+        # 2. ALSO copy libiomp5md.dll to the ROOT of the bundle (fallback safety)
+        iomp_path = os.path.join(torch_lib, 'libiomp5md.dll')
+        if os.path.exists(iomp_path):
+             torch_binaries.append((iomp_path, '.'))
 
 a = Analysis(
     ['main_pyside.py'],

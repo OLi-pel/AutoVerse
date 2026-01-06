@@ -7,9 +7,7 @@ import os
 # --- FIX 1: Enable PyTorch MPS Fallback for macOS ---
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-# --- FIX 2: Monkey Patch torchaudio.AudioMetaData ---
-# Newer torchaudio versions moved this, causing pyannote to crash.
-# We manually restore it if it's missing.
+# --- FIX 2: Monkey Patch torchaudio.AudioMetaData (For macOS/Version Mismatch) ---
 try:
     import torchaudio
     if not hasattr(torchaudio, 'AudioMetaData'):
@@ -17,11 +15,54 @@ try:
             from torchaudio.backend.common import AudioMetaData
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
         except ImportError:
-            # Fallback for very new versions where it might be elsewhere
             pass
 except ImportError:
     pass
-# ----------------------------------------------------
+
+# --- FIX 3: WINDOWS DLL LOADING (WinError 1114 Fix) ---
+# This forces Windows to look in the PyInstaller bundle for the missing c10.dll/libiomp5md.dll
+if sys.platform == 'win32':
+    # 1. Add DLL Directories for Python 3.8+ behavior
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+        # Add the root of the bundle
+        try:
+            os.add_dll_directory(base_dir)
+        except Exception:
+            pass
+        # Add the torch/lib directory specifically
+        try:
+            os.add_dll_directory(os.path.join(base_dir, 'torch', 'lib'))
+        except Exception:
+            pass
+
+    # 2. Aggressively Preload Dependencies
+    # We search for libiomp5md.dll and load it before anything else.
+    def preload_dlls():
+        try:
+            # Paths to check: Bundle root, or source directory
+            search_paths = [
+                sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__),
+                os.path.join(sys._MEIPASS, 'torch', 'lib') if getattr(sys, 'frozen', False) else None
+            ]
+            
+            dll_names = ['libiomp5md.dll', 'mkl_core.dll', 'c10.dll']
+            
+            for folder in search_paths:
+                if not folder or not os.path.exists(folder): continue
+                for dll in dll_names:
+                    full_path = os.path.join(folder, dll)
+                    if os.path.exists(full_path):
+                        try:
+                            ctypes.CDLL(full_path)
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"Warning: DLL Preload failed: {e}")
+
+    preload_dlls()
+# --------------------------------------------------------
+
 
 import logging
 import ssl
