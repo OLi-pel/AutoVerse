@@ -35,7 +35,7 @@ jobs:
           # Install the rest (pip will see torch is already installed and skip it)
           pip install -r requirements.txt
       - name: Build with PyInstaller
-        run: pyinstaller AutoVerse.spec --onedir
+        run: pyinstaller AutoVerse.spec
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y

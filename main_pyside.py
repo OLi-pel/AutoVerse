@@ -3,34 +3,13 @@
 import sys
 import multiprocessing
 import os
+import collections # Added: Required for the AudioMetaData fix
+import logging
 
 # ==============================================================================
 # FIX 1: Enable PyTorch MPS Fallback (Prevents macOS crash on specific ops)
 # ==============================================================================
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-
-# ==============================================================================
-# FIX 2: FORCE-CREATE AudioMetaData (The "Nuclear" Fix for macOS)
-# pyannote.audio crashes because modern torchaudio removed 'AudioMetaData'.
-# We assume it exists; if not, we create a replacement class manually.
-# ==============================================================================
-try:
-    import torchaudio
-    if not hasattr(torchaudio, 'AudioMetaData'):
-        try:
-            # Try finding it in the old location (intermediate versions)
-            from torchaudio.backend.common import AudioMetaData
-            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
-        except ImportError:
-            # If completely missing (newest versions), CREATE IT manually
-            # This is why it is white in VS Code - we are defining it here.
-            AudioMetaData = collections.namedtuple(
-                'AudioMetaData', 
-                ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
-            )
-            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
-except ImportError:
-    pass
 
 # ==============================================================================
 # FIX 3: WINDOWS DLL LOADING (Fixes WinError 1114)
@@ -46,6 +25,7 @@ if sys.platform == 'win32':
 
     # Aggressively preload critical DLLs
     def preload_dlls():
+        import ctypes
         try:
             search_paths = [
                 sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__),
@@ -65,7 +45,6 @@ if sys.platform == 'win32':
 # ==============================================================================
 
 
-import logging
 import ssl
 import certifi
 from queue import Empty
@@ -87,9 +66,8 @@ def configure_ssl_for_bundle():
             cert_path = certifi.where()
             os.environ['SSL_CERT_FILE'] = cert_path
             ssl._create_default_https_context = lambda: ssl.create_default_context(cafile=cert_path)
-            logging.info(f"SSL Context configured to use certifi bundle at: {cert_path}")
         except Exception as e:
-            logging.error(f"CRITICAL: Failed to configure SSL certificates for bundle. Network requests may fail. Error: {e}")
+            print(f"CRITICAL: Failed to configure SSL certificates for bundle. Error: {e}")
 
 def _get_bundled_ffmpeg_path():
     """Checks if the app is a PyInstaller bundle and returns the path to ffmpeg."""
@@ -256,6 +234,33 @@ def run_app():
     """
     Contains all application logic and imports.
     """
+    # ==============================================================================
+    # FIX 2: FORCE-CREATE AudioMetaData (The "Nuclear" Fix for macOS/New Torch)
+    # Placed here inside run_app to ensure imports work correctly.
+    # ==============================================================================
+    try:
+        import torch # Importing torch first often resolves DLL loading issues for torchaudio
+        import torchaudio
+        
+        if not hasattr(torchaudio, 'AudioMetaData'):
+            try:
+                # Try finding it in the old location (intermediate versions)
+                from torchaudio.backend.common import AudioMetaData
+                setattr(torchaudio, 'AudioMetaData', AudioMetaData)
+            except ImportError:
+                # If completely missing (newest versions), CREATE IT manually
+                # We use collections.namedtuple which must be imported
+                AudioMetaData = collections.namedtuple(
+                    'AudioMetaData', 
+                    ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
+                )
+                setattr(torchaudio, 'AudioMetaData', AudioMetaData)
+                # logging.info("Applied polyfill for torchaudio.AudioMetaData")
+    except Exception as e:
+        print(f"Warning: Failed to apply AudioMetaData fix: {e}")
+        # We don't exit here, hoping it might work or crash explicitly later
+    # ==============================================================================
+
     # --- FIX: Preload Torch DLLs on Windows to prevent WinError 1114 ---
     if sys.platform == 'win32':
         import ctypes
@@ -296,6 +301,7 @@ def run_app():
     from utils import constants
     from utils import translations # Import translation module
     from utils.config_manager import ConfigManager
+    # Importing logic here triggers pyannote imports, so Fix 2 MUST be applied before this line.
     from ui.correction_view_logic import CorrectionViewLogic
     from ui.settings_logic import SettingsLogic
     from core.app_worker import processing_worker_function
