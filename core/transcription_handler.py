@@ -25,7 +25,7 @@ class TranscriptionHandler:
         return self.model is not None
 
     def _load_model(self):
-        logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') on device '{self.device}'...")
+        logger.info(f"TranscriptionHandler: Loading Whisper model ('{self.model_name}') for device '{self.device}'...")
         
         whisper_cache_path = None
         if self.cache_dir:
@@ -38,13 +38,28 @@ class TranscriptionHandler:
                 whisper_cache_path = None
 
         try:
+            # --- FIX: Safer Loading Strategy ---
+            # 1. Force load to CPU first. This avoids the "SparseMPS" / "aten::empty.memory_format" 
+            #    crash that happens when loading via torch.load map_location='mps' directly.
             model = whisper.load_model(
                 self.model_name,
-                device=self.device,
+                device="cpu", 
                 download_root=whisper_cache_path
             )
+            
+            # 2. Explicitly move to the target device (MPS/CUDA)
+            if self.device.type != "cpu":
+                try:
+                    logger.info(f"Moving model to accelerator: {self.device}")
+                    model = model.to(self.device)
+                except Exception as e:
+                    logger.warning(f"Failed to move model to {self.device}: {e}")
+                    logger.warning("Falling back to CPU for transcription to prevent crash.")
+                    # No need to do anything, model is already on CPU
+            
             logger.info(f"TranscriptionHandler: Whisper model '{self.model_name}' loaded successfully.")
             return model
+
         except Exception as e:
             logger.error(f"Error loading Whisper model: {e}", exc_info=True)
             self._report_progress(f"Error loading model: {e}", 0)

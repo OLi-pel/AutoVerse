@@ -114,16 +114,22 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
 
         progress_callback("Initializing AI models...", 5)
         
+        # --- FIX: Pass all UI options to AudioProcessor ---
         audio_processor = AudioProcessor(
             config={
                 'huggingface': {'hf_token': options['hf_token']}, 
                 'transcription': {'model_name': whisper_model_name}
             },
             progress_callback=progress_callback, 
-            enable_diarization=options['enable_diarization'], 
+            enable_diarization=options.get(constants.OPTION_DIARIZE, False),
+            # Pass the missing options here:
+            enable_auto_merge=options.get(constants.OPTION_AUTO_MERGE, False),
+            include_timestamps=options.get(constants.OPTION_TIMESTAMPS, True),
+            include_end_times=options.get(constants.OPTION_END_TIMES, False),
             cache_dir=cache_dir,
             logger_instance=worker_logger
         )
+        # --------------------------------------------------
         
         if audio_processor._initialization_error: 
             raise Exception(audio_processor._initialization_error)

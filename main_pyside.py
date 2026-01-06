@@ -3,6 +3,7 @@
 import sys
 import multiprocessing
 import os
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import logging
 import ssl
 import certifi
