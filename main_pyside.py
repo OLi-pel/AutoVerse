@@ -3,7 +3,26 @@
 import sys
 import multiprocessing
 import os
+
+# --- FIX 1: Enable PyTorch MPS Fallback for macOS ---
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+# --- FIX 2: Monkey Patch torchaudio.AudioMetaData ---
+# Newer torchaudio versions moved this, causing pyannote to crash.
+# We manually restore it if it's missing.
+try:
+    import torchaudio
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        try:
+            from torchaudio.backend.common import AudioMetaData
+            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
+        except ImportError:
+            # Fallback for very new versions where it might be elsewhere
+            pass
+except ImportError:
+    pass
+# ----------------------------------------------------
+
 import logging
 import ssl
 import certifi
