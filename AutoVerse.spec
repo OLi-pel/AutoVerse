@@ -49,7 +49,10 @@ a = Analysis(
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
         'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
-        'moviepy', 'PySide6', 'lightning_fabric', 'transformers'
+        'moviepy', 'PySide6', 'lightning_fabric', 'transformers',
+        'pyannote.audio.models.embedding', 
+        'pyannote.audio.models.segmentation',
+        'speechbrain.lobes.models.ECAPA_TDNN',
     ],
     hookspath=['.'],
     hooksconfig={},

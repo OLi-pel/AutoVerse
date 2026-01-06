@@ -276,33 +276,45 @@ def run_app():
     """
     Contains all application logic and imports.
     """
-    # --- FIX: Preload Torch DLLs on Windows to prevent WinError 1114 ---
+    # ==============================================================================
+    # CRITICAL FIX: Preload Torch DLLs (WinError 1114 fix)
+    # This MUST run before 'import torch' or any module that imports it.
+    # ==============================================================================
     if sys.platform == 'win32':
         import ctypes
-        try:
-            # Determine the path to the torch/lib directory
-            if getattr(sys, 'frozen', False):
-                # In the frozen bundle
-                base_dir = sys._MEIPASS
-                torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
-            else:
-                # Running from source
-                import torch
-                torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
-            
-            # Key dependencies to preload
-            libs_to_load = ['libiomp5md.dll', 'c10.dll']
-            
-            for lib_name in libs_to_load:
-                lib_path = os.path.join(torch_lib_path, lib_name)
-                if os.path.exists(lib_path):
-                    try:
-                        ctypes.CDLL(lib_path)
-                    except Exception as e:
-                        print(f"Warning: Failed to preload {lib_name}: {e}")
-        except Exception as e:
-            print(f"Warning: Error during DLL preload attempt: {e}")
-    # -------------------------------------------------------------------
+        import os
+        
+        # 1. Determine the exact path to torch/lib inside the frozen bundle
+        if getattr(sys, 'frozen', False):
+            base_dir = sys._MEIPASS
+            torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
+        else:
+            # Fallback for dev mode
+            import site
+            torch_lib_path = os.path.join(site.getsitepackages()[0], 'torch', 'lib')
+
+        # 2. Add torch/lib to the system PATH environment variable
+        # This helps Windows find dependencies of dependencies (like c10.dll needing libiomp5md.dll)
+        if os.path.exists(torch_lib_path):
+            os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
+            try:
+                os.add_dll_directory(torch_lib_path)
+            except (AttributeError, OSError):
+                pass # add_dll_directory is not available on all Pythons/Windows versions
+
+        # 3. Explicitly load the OpenMP library FIRST
+        # This prevents the app from loading a conflicting version from elsewhere.
+        dlls_to_preload = ['libiomp5md.dll', 'fbjni.dll', 'pytorch_jni.dll', 'c10.dll']
+        
+        for dll_name in dlls_to_preload:
+            dll_path = os.path.join(torch_lib_path, dll_name)
+            if os.path.exists(dll_path):
+                try:
+                    ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL if hasattr(ctypes, 'RTLD_GLOBAL') else 0)
+                except Exception as e:
+                    # It's okay if some don't load, as long as libiomp5md loads
+                    print(f"Warning: Failed to preload {dll_name}: {e}")
+    # ==============================================================================
 
     import time
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
