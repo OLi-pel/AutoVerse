@@ -1,7 +1,9 @@
-#core/diarization_handler.py
+# core/diarization_handler.py
 import logging
 import os
 from pyannote.audio import Pipeline
+# --- IMPORT THE HOOK ---
+from pyannote.audio.pipelines.utils.hook import ProgressHook
 import torch
 
 logger = logging.getLogger(__name__)
@@ -53,7 +55,11 @@ class DiarizationHandler:
         
         logger.info(f"DiarizationHandler: Starting diarization for {audio_path}")
         try:
-            diarization_result = self.pipeline(audio_path)
+            # --- FIX: USE PROGRESS HOOK ---
+            # This generates the tqdm bar that app_worker.py captures
+            with ProgressHook() as hook:
+                diarization_result = self.pipeline(audio_path, hook=hook)
+                
             logger.info("DiarizationHandler: Diarization completed successfully.")
             return diarization_result
         except Exception as e:

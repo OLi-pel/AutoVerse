@@ -52,12 +52,14 @@ class TranscriptionHandler:
         
     def transcribe(self, audio_path: str):
         """
-        Transcribes the audio file. Forcing `verbose=None` to ensure the tqdm
-        progress bar is always shown for capturing by TqdmLogStream.
+        Transcribes the audio file. 
+        CRITICAL: verbose=False forces the progress bar to show (which we capture).
+        verbose=None or True might disable it or print text instead.
         """
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
         try:
-            result = self.model.transcribe(audio_path, verbose=None)
+            # FIX: verbose=False enables the tqdm progress bar
+            result = self.model.transcribe(audio_path, verbose=False)
             logger.info("TranscriptionHandler: Transcription completed successfully.")
             return result
         except Exception as e:

@@ -6,6 +6,12 @@ import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files
 
+# --- FIX: Import torch to find its library path ---
+import torch
+torch_root = os.path.dirname(torch.__file__)
+torch_lib_path = os.path.join(torch_root, 'lib')
+# ------------------------------------------------
+
 # Determine the ffmpeg binary path based on the OS.
 if sys.platform == 'win32':
     ffmpeg_binary_path = os.path.join('bin', 'ffmpeg.exe')
@@ -24,10 +30,17 @@ datas = [
     *collect_data_files('transformers')
 ]
 
+# --- FIX: Explicitly collect torch DLLs (especially libiomp5md.dll) ---
+# We add them to 'torch/lib' in the bundle so c10.dll can find them.
+torch_binaries = []
+if os.path.exists(torch_lib_path):
+    torch_binaries.append((os.path.join(torch_lib_path, '*.dll'), os.path.join('torch', 'lib')))
+# -----------------------------------------------------------------------
+
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
-    binaries=[(ffmpeg_binary_path, 'bin')],
+    binaries=[(ffmpeg_binary_path, 'bin')] + torch_binaries, # Add torch binaries here
     datas=datas,
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',

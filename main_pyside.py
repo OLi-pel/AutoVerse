@@ -40,6 +40,35 @@ def run_app():
     """
     Contains all application logic and imports.
     """
+    # --- FIX: Preload Torch DLLs on Windows to prevent WinError 1114 ---
+    if sys.platform == 'win32':
+        import ctypes
+        try:
+            # Determine the path to the torch/lib directory
+            if getattr(sys, 'frozen', False):
+                # In the frozen bundle
+                base_dir = sys._MEIPASS
+                torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
+            else:
+                # Running from source
+                import torch
+                torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
+            
+            # Key dependencies to preload
+            libs_to_load = ['libiomp5md.dll', 'c10.dll']
+            
+            for lib_name in libs_to_load:
+                lib_path = os.path.join(torch_lib_path, lib_name)
+                if os.path.exists(lib_path):
+                    try:
+                        ctypes.CDLL(lib_path)
+                    except Exception as e:
+                        # Just print/log, don't crash yet; let the actual import fail if it must
+                        print(f"Warning: Failed to preload {lib_name}: {e}")
+        except Exception as e:
+            print(f"Warning: Error during DLL preload attempt: {e}")
+    # -------------------------------------------------------------------
+
     import time
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
@@ -1038,8 +1067,15 @@ def run_app():
                     self.current_step_start_time = time.time()
                     self.original_status_text = data
                 elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS:
-                    percentage = data
-                    self.window.progress_bar.setValue(percentage)
+                    # Whisper envoie 0-100.
+                    # Si on est à l'étape transcription (après 30%), on map 0-100 vers 30-90.
+                    whisper_percentage = data
+                    
+                    # Mapping simple : (whisper_val * 0.6) + 30
+                    # Cela fait que 0% Whisper = 30% Global, et 100% Whisper = 90% Global
+                    mapped_percentage = int((whisper_percentage * 0.6) + 30)
+                    
+                    self.window.progress_bar.setValue(mapped_percentage)
                 elif msg_type == constants.MSG_TYPE_BATCH_FILE_START:
                     file_info = data
                     status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
