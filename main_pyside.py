@@ -4,64 +4,65 @@ import sys
 import multiprocessing
 import os
 
-# --- FIX 1: Enable PyTorch MPS Fallback for macOS ---
+# ==============================================================================
+# FIX 1: Enable PyTorch MPS Fallback (Prevents macOS crash on specific ops)
+# ==============================================================================
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-# --- FIX 2: Monkey Patch torchaudio.AudioMetaData (For macOS/Version Mismatch) ---
+# ==============================================================================
+# FIX 2: FORCE-CREATE AudioMetaData (The "Nuclear" Fix for macOS)
+# pyannote.audio crashes because modern torchaudio removed 'AudioMetaData'.
+# We assume it exists; if not, we create a replacement class manually.
+# ==============================================================================
 try:
     import torchaudio
     if not hasattr(torchaudio, 'AudioMetaData'):
         try:
+            # Try finding it in the old location (intermediate versions)
             from torchaudio.backend.common import AudioMetaData
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
         except ImportError:
-            pass
+            # If completely missing (newest versions), CREATE IT manually
+            # This is why it is white in VS Code - we are defining it here.
+            AudioMetaData = collections.namedtuple(
+                'AudioMetaData', 
+                ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
+            )
+            setattr(torchaudio, 'AudioMetaData', AudioMetaData)
 except ImportError:
     pass
 
-# --- FIX 3: WINDOWS DLL LOADING (WinError 1114 Fix) ---
-# This forces Windows to look in the PyInstaller bundle for the missing c10.dll/libiomp5md.dll
+# ==============================================================================
+# FIX 3: WINDOWS DLL LOADING (Fixes WinError 1114)
+# ==============================================================================
 if sys.platform == 'win32':
-    # 1. Add DLL Directories for Python 3.8+ behavior
     if getattr(sys, 'frozen', False):
         base_dir = sys._MEIPASS
-        # Add the root of the bundle
         try:
             os.add_dll_directory(base_dir)
-        except Exception:
-            pass
-        # Add the torch/lib directory specifically
-        try:
             os.add_dll_directory(os.path.join(base_dir, 'torch', 'lib'))
         except Exception:
             pass
 
-    # 2. Aggressively Preload Dependencies
-    # We search for libiomp5md.dll and load it before anything else.
+    # Aggressively preload critical DLLs
     def preload_dlls():
         try:
-            # Paths to check: Bundle root, or source directory
             search_paths = [
                 sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__),
                 os.path.join(sys._MEIPASS, 'torch', 'lib') if getattr(sys, 'frozen', False) else None
             ]
-            
+            # libiomp5md.dll is the usual suspect for 1114 errors
             dll_names = ['libiomp5md.dll', 'mkl_core.dll', 'c10.dll']
-            
             for folder in search_paths:
                 if not folder or not os.path.exists(folder): continue
                 for dll in dll_names:
                     full_path = os.path.join(folder, dll)
                     if os.path.exists(full_path):
-                        try:
-                            ctypes.CDLL(full_path)
-                        except Exception:
-                            pass
-        except Exception as e:
-            print(f"Warning: DLL Preload failed: {e}")
-
+                        try: ctypes.CDLL(full_path)
+                        except Exception: pass
+        except Exception: pass
     preload_dlls()
-# --------------------------------------------------------
+# ==============================================================================
 
 
 import logging
