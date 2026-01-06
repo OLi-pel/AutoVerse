@@ -30,12 +30,10 @@ datas = [
     *collect_data_files('transformers')
 ]
 
-# --- FIX: Explicitly collect torch DLLs (especially libiomp5md.dll) ---
-# We add them to 'torch/lib' in the bundle so c10.dll can find them.
 torch_binaries = []
-if os.path.exists(torch_lib_path):
-    torch_binaries.append((os.path.join(torch_lib_path, '*.dll'), os.path.join('torch', 'lib')))
-# -----------------------------------------------------------------------
+if sys.platform == 'win32':
+    if os.path.exists(torch_lib_path):
+        torch_binaries.append((os.path.join(torch_lib_path, '*.dll'), os.path.join('torch', 'lib')))
 
 a = Analysis(
     ['main_pyside.py'],
