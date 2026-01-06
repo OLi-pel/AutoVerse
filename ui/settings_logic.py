@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 from PySide6.QtWidgets import (QWidget, QComboBox, QPushButton, QMessageBox, 
-                               QApplication, QStyleFactory)
+                               QApplication, QStyleFactory, QGroupBox, QLabel)
 from PySide6.QtCore import QObject, Slot, Qt
 from PySide6.QtGui import QPalette, QColor
 
@@ -20,33 +20,59 @@ class SettingsLogic(QObject):
         self.config_manager = main_app.config_manager
         
         # UI Elements
-        self.theme_combo = self.main_window.findChild(QComboBox, "settings_theme_combo")
+        # Note: self.theme_combo is purposely ignored/hidden
         self.language_combo = self.main_window.findChild(QComboBox, "settings_language_combo")
         self.check_updates_btn = self.main_window.findChild(QPushButton, "settings_check_updates_btn")
         self.reset_tutorials_btn = self.main_window.findChild(QPushButton, "settings_reset_tutorials_btn")
         self.clear_cache_btn = self.main_window.findChild(QPushButton, "settings_clear_cache_btn")
         self.reset_app_btn = self.main_window.findChild(QPushButton, "settings_reset_app_btn")
         
+        # Group Boxes to manage visibility
+        self.appearance_group = self.main_window.findChild(QGroupBox, "appearance_group")
+        self.danger_group = self.main_window.findChild(QGroupBox, "danger_zone_group")
+        self.app_group = self.main_window.findChild(QGroupBox, "application_group")
+
         self._init_ui_state()
         self._connect_signals()
 
     def _init_ui_state(self):
-        # Load saved settings
-        current_theme = self.config_manager.get_theme()
-        index = self.theme_combo.findText(current_theme)
-        if index >= 0:
-            self.theme_combo.setCurrentIndex(index)
+        # Hide Theme UI components
+        theme_combo = self.main_window.findChild(QComboBox, "settings_theme_combo")
+        theme_label = self.main_window.findChild(QLabel, "label_theme")
+        if theme_combo: theme_combo.hide()
+        if theme_label: theme_label.hide()
+
+        # Hide Danger Zone Group
+        if self.danger_group:
+            self.danger_group.hide()
             
+        # Move Reset Button to App Group if not already there (logical reparenting)
+        # We do this by ensuring the Reset button is visible and connected, 
+        # effectively treating it as a standard action.
+        # Since we can't easily move widgets between layouts defined in .ui at runtime 
+        # without breaking layout pointers, we simply accept it's "Gone" visually 
+        # but we want the functionality.
+        # Actually, let's just repurpose the danger zone or add it programmatically.
+        # Simpler approach: Allow the Danger Group to be hidden, and re-add the button 
+        # to the Application Group layout programmatically.
+        
+        if self.app_group and self.reset_app_btn:
+            layout = self.app_group.layout()
+            if layout:
+                # Remove from old parent layout if possible, or just add to new one
+                # PySide re-parenting handles removal.
+                layout.addWidget(self.reset_app_btn)
+                
+                # Reset styling to look normal
+                self.reset_app_btn.setStyleSheet("") 
+
+        # Load Language
         current_lang = self.config_manager.get_language()
         index = self.language_combo.findText(current_lang)
         if index >= 0:
             self.language_combo.setCurrentIndex(index)
 
-        # Apply the theme immediately
-        self.apply_theme(current_theme)
-
     def _connect_signals(self):
-        self.theme_combo.currentTextChanged.connect(self.on_theme_changed)
         self.language_combo.currentTextChanged.connect(self.on_language_changed)
         self.check_updates_btn.clicked.connect(self.on_check_updates_clicked)
         self.reset_tutorials_btn.clicked.connect(self.on_reset_tutorials_clicked)
@@ -54,59 +80,13 @@ class SettingsLogic(QObject):
         self.reset_app_btn.clicked.connect(self.on_reset_app_clicked)
 
     @Slot(str)
-    def on_theme_changed(self, theme_name):
-        self.config_manager.set_theme(theme_name)
-        self.apply_theme(theme_name)
-        # QMessageBox.information(self.main_window, "Theme Changed", f"Theme set to {theme_name}.")
-
-    def apply_theme(self, theme_name):
-        app = QApplication.instance()
-        
-        if theme_name == "Dark":
-            app.setStyle("Fusion")
-            dark_palette = QPalette()
-            dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
-            dark_palette.setColor(QPalette.WindowText, Qt.white)
-            dark_palette.setColor(QPalette.Base, QColor(25, 25, 25))
-            dark_palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-            dark_palette.setColor(QPalette.ToolTipBase, Qt.white)
-            dark_palette.setColor(QPalette.ToolTipText, Qt.white)
-            dark_palette.setColor(QPalette.Text, Qt.white)
-            dark_palette.setColor(QPalette.Button, QColor(53, 53, 53))
-            dark_palette.setColor(QPalette.ButtonText, Qt.white)
-            dark_palette.setColor(QPalette.BrightText, Qt.red)
-            dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
-            dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
-            dark_palette.setColor(QPalette.HighlightedText, Qt.black)
-            app.setPalette(dark_palette)
-            app.setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }")
-        
-        elif theme_name == "Light":
-            app.setStyle("Fusion")
-            app.setPalette(QApplication.style().standardPalette())
-            app.setStyleSheet("")
-            
-        else: # System
-            if sys.platform == 'win32':
-                if 'windowsvista' in QStyleFactory.keys():
-                    app.setStyle('windowsvista')
-            elif sys.platform == 'darwin':
-                 if 'macos' in QStyleFactory.keys():
-                    app.setStyle('macos')
-            
-            app.setPalette(QApplication.style().standardPalette())
-            app.setStyleSheet("")
-
-    @Slot(str)
     def on_language_changed(self, lang_name):
         self.config_manager.set_language(lang_name)
         self.main_app.current_language = lang_name
         self.main_app.retranslateUi()
-        # QMessageBox.information(self.main_window, "Language Changed", f"Language changed to {lang_name}.")
 
     @Slot()
     def on_check_updates_clicked(self):
-        # Trigger the check in the main app
         if hasattr(self.main_app, 'check_for_updates_manual'):
             self.main_app.check_for_updates_manual()
         else:
@@ -148,7 +128,6 @@ class SettingsLogic(QObject):
         
         if reply == QMessageBox.Yes:
             try:
-                # Delete config file
                 if os.path.exists(constants.DEFAULT_CONFIG_FILE):
                     os.remove(constants.DEFAULT_CONFIG_FILE)
                 

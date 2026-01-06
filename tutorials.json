@@ -3,74 +3,73 @@
     "main_tutorial": [
         {
           "target_widget": "browse_button",
-          "title": "Step 1: Select a File",
-          "text": "Welcome to AutoVerse! To start, click the highlighted 'Browse' button to select an audio or video file you want to transcribe.",
-          "validation": { "type": "file_selected", "action": "select_files" },
-          "pre_action": { "target": "step1_box", "method": "expand" }
+          "title": "Select a File",
+          "text": "Welcome to AutoVerse! To start, click the folder icon to select an audio or video file you want to transcribe.",
+          "validation": { "type": "file_selected", "action": "select_files" }
         },
         {
           "target_widget": "identify_speakers_checkbutton",
-          "title": "Step 2: Identify Speakers",
+          "title": "Identify Speakers",
           "text": "If your audio has multiple speakers, check this box. This will automatically label who is speaking (e.g., SPEAKER_00, SPEAKER_01).",
           "validation": { "type": "checked" }
         },
         {
           "target_widget": "timestamps_checkbutton_2",
-          "title": "Step 3: Include Timestamps",
-          "text": "It's highly recommended to include timestamps. This makes your transcript much easier to review and edit later. Ensure this box is checked.",
+          "title": "Include Timestamps",
+          "text": "It's highly recommended to include timestamps. This makes your transcript much easier to review and edit later.",
           "validation": { "type": "checked" }
         },
         {
-          "target_widget": "proceed_button",
-          "title": "Step 4: Start Processing",
-          "text": "Great! All the main options are set. Click here to start processing. The tutorial will hide and reappear when it's finished.",
-          "validation": { "type": "action_click", "action": "_proceed_to_processing_step" }
+          "target_widget": "start_processing_button",
+          "title": "Start Processing",
+          "text": "Great! When you are ready, click here to start processing. The tutorial will hide and reappear when it's finished.",
+          "validation": { "type": "action_click", "action": "start_or_abort_processing" }
         },
         {
           "target_widget": "output_text_area",
-          "title": "Step 5: View Your Transcript",
+          "title": "View Your Transcript",
           "text": "Congratulations! Your transcript appears here. The final step is to move to the Correction tab for advanced editing.",
           "type": "passive",
           "disable_prev": true
         },
         {
           "target_widget": "correction_button",
-          "title": "Step 6: Head to Correction",
+          "title": "Head to Correction",
           "text": "Click the 'Head to correction tab' button to open this transcript in the advanced editor. This will continue the tutorial.",
           "validation": { "type": "action_click", "action": "go_to_correction", "auto_advances": true },
           "disable_prev": true
         },
         {
           "target_widget": "correction_text_area",
-          "title": "Step 7: The Correction Editor",
+          "title": "The Correction Editor",
           "text": "Welcome to the editor! Your files are loaded. This is where you'll do all your editing work.",
           "validation": { "type": "manual_next" },
           "disable_prev": true
         },
         {
-          "title": "Step 8: Selecting Segments",
+          "title": "Selecting Segments",
           "text": "First, learn to select segments. Click on any segment to select it. Try clicking on different segments now.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 9: Text Editing - Enter Edit Mode",
-          "text": "The most important feature! To edit text, double-click any segment to enter edit mode. Alternatively, you can select a segment and click the 'Edit Text' button. Try either method now.",
+          "title": "Text Editing - Enter Edit Mode",
+          "text": "To edit text, double-click any segment to enter edit mode. Alternatively, select a segment and click the 'Edit Text' button.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_edit_btn"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 10: Text Editing - Make Changes",
+          "title": "Text Editing - Make Changes",
           "text": "Now you're in edit mode! Make some changes to the text. You can fix typos, add punctuation, or rewrite sentences entirely.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 11: Text Editing - Exit Edit Mode",
-          "text": "When done editing, click the 'Edit Text' button again to save your changes and exit edit mode. You can also click elsewhere to exit. Try this now, then click Next.",
+          "title": "Text Editing - Exit Edit Mode",
+          "text": "When done editing, click the 'Edit Text' button again (or click elsewhere) to save your changes.",
           "target_widget": "correction_text_edit_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
@@ -81,7 +80,7 @@
           "secondary_widgets": ["correction_timeline_frame", "correction_text_area"],
           "highlight_widgets": [],
           "panel_position_hint": "center_top",
-          "title": "Step 12: Audio Playback - Play/Pause",
+          "title": "Audio Playback - Play/Pause",
           "text": "Audio playback helps you verify your edits. Click the Play button to start audio playback.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
@@ -89,8 +88,8 @@
           "target_widget": "correction_timeline_frame",
           "secondary_widgets": ["correction_play_pause_btn", "correction_rewind_btn", "correction_forward_btn", "correction_text_area"],
           "panel_position_hint": "center_top",
-          "title": "Step 13: Audio Playback - Timeline Navigation",
-          "text": "Click anywhere on the timeline to jump to that point in the audio. This is very useful for finding specific parts.",
+          "title": "Audio Playback - Timeline Navigation",
+          "text": "Click anywhere on the timeline to jump to that point in the audio.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
@@ -98,134 +97,120 @@
           "secondary_widgets": ["correction_play_pause_btn", "correction_timeline_frame", "correction_text_area"],
           "highlight_widgets": ["correction_forward_btn"],
           "panel_position_hint": "center_top",
-          "title": "Step 14: Audio Playback - Rewind/Forward",
-          "text": "Use the Rewind and Forward buttons to skip back or ahead by a few seconds. Both buttons are highlighted. Try them now, then click Next.",
+          "title": "Audio Playback - Rewind/Forward",
+          "text": "Use the Rewind and Forward buttons to skip back or ahead by a few seconds.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 15: Splitting Segments - Select Text",
+          "title": "Splitting Segments - Select Text",
           "text": "Sometimes you need to split one segment into two. First, double-click a segment to enter edit mode.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 16: Splitting Segments - Position Cursor",
-          "text": "Now place your cursor exactly where you want to split the segment. This will become the boundary between two segments.",
+          "title": "Splitting Segments - Position Cursor",
+          "text": "Place your cursor exactly where you want to split the segment.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 17: Add/Split Segments - Use the Button",
-          "text": "With your cursor positioned, click the 'Add/Split' button. This versatile button can split existing segments OR create entirely new segments. It will open a dialog with options.",
+          "title": "Add/Split Segments - Use the Button",
+          "text": "Click 'Add/Split'. In edit mode, this splits the segment at your cursor. It will open a dialog with options.",
           "target_widget": "segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_add_split_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Step 18: Creating New Segments",
-          "text": "The 'Add/Split' button can also create completely new segments. Simply select any segment and click the button - you'll get options to add a new segment above or below the selected one.",
+          "title": "Creating New Segments",
+          "text": "This button can also create completely new segments. Simply select a segment (without editing text) and click the button to add above/below.",
           "target_widget": "segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next", "allow_interaction": true }
         },
         {
-          "title": "Step 19: Merging Segments - Select Multiple",
-          "text": "To merge segments, select multiple segments (they don't need to be consecutive). Hold Shift and click on segments. You can even select just one segment to merge it with the one above it.",
+          "title": "Merging Segments - Select Multiple",
+          "text": "To merge segments, select multiple segments (Hold Shift and click). Or select one to merge with the previous one.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 20: Merging Segments - Use Merge Button",
-          "text": "Perfect! Now click the 'Merge' button to combine all selected segments into one single segment.",
+          "title": "Merging Segments - Use Merge Button",
+          "text": "Click 'Merge' to combine the selected segments into one.",
           "target_widget": "merge_segments_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_merge_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Step 21: Deleting Segments - Select Target",
-          "text": "Sometimes you need to remove segments entirely. First, select one or more segments you want to delete.",
+          "title": "Deleting Segments - Select Target",
+          "text": "Select one or more segments you want to delete.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 22: Deleting Segments - Confirm Selection",
-          "text": "Make sure you have the right segments selected. You can select multiple segments with Shift+click if needed.",
-          "target_widget": "correction_text_area",
-          "secondary_widgets": ["correction_text_area"],
-          "validation": { "type": "interactive_widget", "allow_interaction": true }
-        },
-        {
-          "title": "Step 23: Deleting Segments - Use Delete Button",
-          "text": "Now click the 'Delete' button and confirm your choice in the popup dialog that appears.",
+          "title": "Deleting Segments - Use Delete Button",
+          "text": "Click the 'Delete' button and confirm your choice.",
           "target_widget": "delete_segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_delete_segment_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Step 24: Timestamp Editing - Select Segment",
-          "text": "Now let's learn timestamp editing. First, select a segment whose timestamp you want to adjust.",
+          "title": "Timestamp Editing - Select Segment",
+          "text": "Select a segment whose timestamp you want to adjust.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 25: Timestamp Editing - Enter Edit Mode",
-          "text": "With a segment selected, click the 'Edit Timestamps' button to enter timestamp editing mode. Alternatively, you can double-click directly on the timestamp part of any segment.",
+          "title": "Timestamp Editing - Enter Edit Mode",
+          "text": "Click 'Edit Timestamps' to visually adjust the start time on the waveform.",
           "target_widget": "correction_timestamp_edit_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_timestamp_edit_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Step 26: Timestamp Editing - Adjust Time",
-          "text": "A cyan bar now marks the start time. Drag this bar, or use the playback controls to find the right spot. When ready, click Next.",
+          "title": "Timestamp Editing - Adjust Time",
+          "text": "Drag the cyan bar on the timeline or use playback controls to find the right start time.",
           "target_widget": "correction_timeline_frame",
           "secondary_widgets": ["correction_play_pause_btn", "correction_rewind_btn", "correction_forward_btn", "save_timestamp_btn", "correction_text_area"],
           "panel_position_hint": "above_timeline",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Step 27: Timestamp Editing - Save Changes",
-          "text": "Great! Now click the 'Save' button to confirm your new timestamp. To cancel, click the main 'Edit Timestamps' button again.",
+          "title": "Timestamp Editing - Save Changes",
+          "text": "Click the 'Save' (disk) button to confirm your new timestamp.",
           "target_widget": "save_timestamp_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_save_timestamp_clicked", "auto_advances": true }
         },
         {
-          "title": "Step 28: Speaker Management - Select Speaker Segment",
-          "text": "For speaker management, first select any segment that has a speaker label (like SPEAKER_00 or SPEAKER_01).",
-          "target_widget": "correction_text_area",
-          "secondary_widgets": ["correction_text_area"],
-          "validation": { "type": "interactive_widget", "allow_interaction": true }
-        },
-        {
-          "title": "Step 29: Speaker Management - Change Individual Speaker",
-          "text": "To change just this segment's speaker, click the 'Edit Speaker' button. Alternatively, you can double-click directly on the speaker part of any segment. This lets you reassign who is speaking.",
+          "title": "Speaker Management - Change Speaker",
+          "text": "Select a segment and click 'Edit Speaker' to reassign who is speaking.",
           "target_widget": "edit_speaker_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next", "allow_interaction": true }
         },
         {
-          "title": "Step 30: Speaker Management - Rename All Speakers",
-          "text": "To rename speakers globally (e.g., change SPEAKER_00 to 'Alice' everywhere), click 'Assign Speaker Names'.",
+          "title": "Speaker Management - Rename All",
+          "text": "Click 'Assign Speaker Names' to globally rename labels (e.g., change SPEAKER_00 to 'Alice').",
           "target_widget": "correction_assign_speakers_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next" }
         },
         {
-          "title": "Step 31: Undo and Redo - Mistake Recovery",
-          "text": "Made a mistake? No problem! Use 'Undo' to reverse your last action, or 'Redo' to bring it back. Both buttons are highlighted for you.",
+          "title": "Undo and Redo",
+          "text": "Use 'Undo' and 'Redo' to correct any mistakes.",
           "target_widget": "Undo_button",
           "secondary_widgets": ["correction_text_area"],
           "highlight_widgets": ["Redo_Button"],
@@ -233,16 +218,8 @@
           "validation": { "type": "manual_next" }
         },
         {
-          "title": "Step 32: Saving Your Work - Export Changes",
-          "text": "Always save your work! Click 'Save Changes' to export your edited transcript to a new file.",
-          "target_widget": "correction_save_changes_btn",
-          "secondary_widgets": ["correction_text_area"],
-          "panel_position_hint": "bottom_right",
-          "validation": { "type": "manual_next" }
-        },
-        {
-          "title": "Step 33: Saving Your Work - Auto-Save",
-          "text": "Don't worry about losing work - your changes are also automatically saved every 2 minutes as you work.",
+          "title": "Saving Your Work",
+          "text": "Click 'Save Changes' to export your work. The app also auto-saves every 2 minutes.",
           "target_widget": "correction_save_changes_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
@@ -250,8 +227,8 @@
         },
         {
           "target_widget": "correction_text_area",
-          "title": "Step 34: Tutorial Complete!",
-          "text": "Congratulations! You've learned all the essential features. You can now efficiently edit transcripts, manage speakers, adjust timestamps, and more. Restart this tutorial anytime from the Help menu.",
+          "title": "Tutorial Complete!",
+          "text": "Congratulations! You're ready to use AutoVerse. You can restart this tutorial anytime from the Help menu.",
           "validation": { "type": "manual_next" }
         }
     ]
@@ -260,74 +237,73 @@
     "main_tutorial": [
         {
           "target_widget": "browse_button",
-          "title": "Étape 1 : Choisir un Fichier",
-          "text": "Bienvenue sur AutoVerse ! Pour commencer, cliquez sur le bouton 'Ouvrir' en surbrillance pour sélectionner un fichier audio ou vidéo à transcrire.",
-          "validation": { "type": "file_selected", "action": "select_files" },
-          "pre_action": { "target": "step1_box", "method": "expand" }
+          "title": "Choisir un Fichier",
+          "text": "Bienvenue ! Cliquez sur le bouton 'Ouvrir' pour sélectionner un fichier audio ou vidéo à transcrire.",
+          "validation": { "type": "file_selected", "action": "select_files" }
         },
         {
           "target_widget": "identify_speakers_checkbutton",
-          "title": "Étape 2 : Identifier les Locuteurs",
-          "text": "Si votre audio contient plusieurs locuteurs, cochez cette case. Cela étiquettera automatiquement qui parle (ex: SPEAKER_00, SPEAKER_01).",
+          "title": "Identifier les Locuteurs",
+          "text": "Cochez cette case pour étiqueter automatiquement qui parle (ex: SPEAKER_00).",
           "validation": { "type": "checked" }
         },
         {
           "target_widget": "timestamps_checkbutton_2",
-          "title": "Étape 3 : Inclure l'Horodatage",
-          "text": "Il est fortement recommandé d'inclure les horodatages. Cela rend votre transcription beaucoup plus facile à revoir et à éditer plus tard. Assurez-vous que cette case est cochée.",
+          "title": "Inclure l'Horodatage",
+          "text": "Recommandé : Cochez cette case pour inclure les temps dans la transcription.",
           "validation": { "type": "checked" }
         },
         {
-          "target_widget": "proceed_button",
-          "title": "Étape 4 : Lancer le Traitement",
-          "text": "Parfait ! Toutes les options principales sont définies. Cliquez ici pour lancer le traitement. Le tutoriel se masquera et réapparaîtra une fois terminé.",
-          "validation": { "type": "action_click", "action": "_proceed_to_processing_step" }
+          "target_widget": "start_processing_button",
+          "title": "Lancer le Traitement",
+          "text": "Parfait ! Quand vous êtes prêt, cliquez ici. Le tutoriel reviendra à la fin du traitement.",
+          "validation": { "type": "action_click", "action": "start_or_abort_processing" }
         },
         {
           "target_widget": "output_text_area",
-          "title": "Étape 5 : Voir votre Transcription",
-          "text": "Félicitations ! Votre transcription apparaît ici. La dernière étape consiste à passer à l'onglet Correction pour une édition avancée.",
+          "title": "Voir votre Transcription",
+          "text": "Félicitations ! Votre transcription apparaît ici. Passons maintenant à l'édition.",
           "type": "passive",
           "disable_prev": true
         },
         {
           "target_widget": "correction_button",
-          "title": "Étape 6 : Aller à la Correction",
-          "text": "Cliquez sur le bouton 'Aller à l'onglet Correction' pour ouvrir cette transcription dans l'éditeur avancé. Cela continuera le tutoriel.",
+          "title": "Aller à la Correction",
+          "text": "Cliquez sur 'Aller à l'onglet Correction' pour ouvrir l'éditeur avancé.",
           "validation": { "type": "action_click", "action": "go_to_correction", "auto_advances": true },
           "disable_prev": true
         },
         {
           "target_widget": "correction_text_area",
-          "title": "Étape 7 : L'Éditeur de Correction",
-          "text": "Bienvenue dans l'éditeur ! Vos fichiers sont chargés. C'est ici que vous ferez tout votre travail d'édition.",
+          "title": "L'Éditeur de Correction",
+          "text": "Bienvenue dans l'éditeur ! C'est ici que vous ferez tout votre travail.",
           "validation": { "type": "manual_next" },
           "disable_prev": true
         },
         {
-          "title": "Étape 8 : Sélectionner des Segments",
-          "text": "D'abord, apprenez à sélectionner des segments. Cliquez sur n'importe quel segment pour le sélectionner. Essayez de cliquer sur différents segments maintenant.",
+          "title": "Sélectionner des Segments",
+          "text": "Cliquez sur n'importe quel segment pour le sélectionner.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 9 : Édition de Texte - Mode Édition",
-          "text": "La fonction la plus importante ! Pour éditer du texte, double-cliquez sur n'importe quel segment. Vous pouvez aussi sélectionner un segment et cliquer sur le bouton 'Crayon'. Essayez l'une de ces méthodes.",
+          "title": "Édition de Texte - Mode Édition",
+          "text": "Double-cliquez sur un segment pour modifier son texte, ou utilisez le bouton 'Crayon'.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_edit_btn"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 10 : Édition de Texte - Faire des Changements",
-          "text": "Vous êtes maintenant en mode édition ! Modifiez le texte. Vous pouvez corriger les fautes, ajouter de la ponctuation ou réécrire entièrement les phrases.",
+          "title": "Édition de Texte - Changements",
+          "text": "Vous êtes en mode édition ! Corrigez les fautes ou modifiez le texte.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 11 : Édition de Texte - Quitter le Mode Édition",
-          "text": "Une fois terminé, cliquez à nouveau sur le bouton 'Crayon' pour sauvegarder vos modifications et quitter. Vous pouvez aussi cliquer ailleurs pour quitter. Essayez maintenant, puis cliquez sur Suivant.",
+          "title": "Édition de Texte - Sauvegarder",
+          "text": "Cliquez à nouveau sur le bouton 'Crayon' (ou ailleurs) pour valider.",
           "target_widget": "correction_text_edit_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
@@ -338,16 +314,16 @@
           "secondary_widgets": ["correction_timeline_frame", "correction_text_area"],
           "highlight_widgets": [],
           "panel_position_hint": "center_top",
-          "title": "Étape 12 : Lecture Audio - Lecture/Pause",
-          "text": "La lecture audio vous aide à vérifier vos modifications. Cliquez sur le bouton Lecture pour démarrer l'audio.",
+          "title": "Lecture Audio - Lecture/Pause",
+          "text": "Cliquez sur Lecture pour écouter l'audio et vérifier le texte.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
           "target_widget": "correction_timeline_frame",
           "secondary_widgets": ["correction_play_pause_btn", "correction_rewind_btn", "correction_forward_btn", "correction_text_area"],
           "panel_position_hint": "center_top",
-          "title": "Étape 13 : Navigation - Timeline",
-          "text": "Cliquez n'importe où sur la barre audio (timeline) pour sauter à ce point. Très utile pour retrouver des passages précis.",
+          "title": "Navigation - Timeline",
+          "text": "Cliquez sur la barre audio (timeline) pour sauter à un moment précis.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
@@ -355,134 +331,120 @@
           "secondary_widgets": ["correction_play_pause_btn", "correction_timeline_frame", "correction_text_area"],
           "highlight_widgets": ["correction_forward_btn"],
           "panel_position_hint": "center_top",
-          "title": "Étape 14 : Navigation - Reculer/Avancer",
-          "text": "Utilisez les boutons Reculer et Avancer pour sauter de quelques secondes. Essayez-les maintenant, puis cliquez sur Suivant.",
+          "title": "Navigation - Reculer/Avancer",
+          "text": "Utilisez ces boutons pour sauter de quelques secondes.",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 15 : Diviser des Segments - Sélectionner le Texte",
-          "text": "Parfois, vous devez couper un segment en deux. D'abord, double-cliquez sur un segment pour entrer en mode édition.",
+          "title": "Diviser des Segments - Sélectionner",
+          "text": "Pour couper un segment, double-cliquez d'abord pour entrer en mode édition.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 16 : Diviser des Segments - Placer le Curseur",
-          "text": "Maintenant, placez votre curseur exactement là où vous voulez couper le segment. Cela deviendra la frontière entre deux segments.",
+          "title": "Diviser des Segments - Curseur",
+          "text": "Placez votre curseur à l'endroit de la coupure.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 17 : Ajouter/Diviser - Utiliser le Bouton",
-          "text": "Avec votre curseur positionné, cliquez sur le bouton 'Ajouter/Diviser'. Ce bouton peut diviser un segment existant OU en créer un nouveau. Il ouvrira une fenêtre d'options.",
+          "title": "Ajouter/Diviser - Bouton",
+          "text": "Cliquez sur 'Ajouter/Diviser'. En mode édition, cela coupe le segment à la position du curseur.",
           "target_widget": "segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_add_split_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Étape 18 : Créer de Nouveaux Segments",
-          "text": "Ce bouton peut aussi créer de nouveaux segments vides. Sélectionnez simplement n'importe quel segment et cliquez sur le bouton - vous pourrez ajouter un segment au-dessus ou en-dessous.",
+          "title": "Créer de Nouveaux Segments",
+          "text": "Ce bouton sert aussi à ajouter des segments vides si vous n'êtes pas en mode édition de texte.",
           "target_widget": "segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next", "allow_interaction": true }
         },
         {
-          "title": "Étape 19 : Fusionner des Segments - Sélection Multiple",
-          "text": "Pour fusionner, sélectionnez plusieurs segments (Shift + clic). Vous pouvez aussi sélectionner un seul segment pour le fusionner avec celui du dessus.",
+          "title": "Fusionner - Sélection Multiple",
+          "text": "Sélectionnez plusieurs segments (Shift + clic) ou un seul pour le fusionner avec le précédent.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 20 : Fusionner des Segments - Bouton Fusion",
-          "text": "Parfait ! Maintenant cliquez sur le bouton 'Fusionner' pour combiner tous les segments sélectionnés en un seul.",
+          "title": "Fusionner - Bouton Fusion",
+          "text": "Cliquez sur 'Fusionner' pour combiner la sélection.",
           "target_widget": "merge_segments_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_merge_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Étape 21 : Supprimer des Segments - Sélection",
-          "text": "Parfois, il faut supprimer des segments entiers. D'abord, sélectionnez un ou plusieurs segments à supprimer.",
+          "title": "Supprimer - Sélection",
+          "text": "Sélectionnez le(s) segment(s) à supprimer.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 22 : Supprimer des Segments - Confirmation",
-          "text": "Assurez-vous d'avoir sélectionné les bons segments. Vous pouvez en sélectionner plusieurs avec Shift+clic si nécessaire.",
-          "target_widget": "correction_text_area",
-          "secondary_widgets": ["correction_text_area"],
-          "validation": { "type": "interactive_widget", "allow_interaction": true }
-        },
-        {
-          "title": "Étape 23 : Supprimer des Segments - Bouton Poubelle",
-          "text": "Maintenant cliquez sur le bouton 'Poubelle' et confirmez votre choix dans la fenêtre qui apparaît.",
+          "title": "Supprimer - Bouton Poubelle",
+          "text": "Cliquez sur 'Poubelle' et confirmez.",
           "target_widget": "delete_segment_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_delete_segment_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Étape 24 : Édition d'Horodatage - Sélection",
-          "text": "Apprenons à modifier les temps. D'abord, sélectionnez un segment dont vous voulez ajuster l'horodatage.",
+          "title": "Édition d'Horodatage - Sélection",
+          "text": "Sélectionnez un segment pour ajuster son temps.",
           "target_widget": "correction_text_area",
           "secondary_widgets": ["correction_text_area"],
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 25 : Édition d'Horodatage - Mode Chrono",
-          "text": "Avec un segment sélectionné, cliquez sur le bouton 'Chronomètre' pour entrer en mode édition de temps. Ou double-cliquez directement sur l'horodatage du segment.",
+          "title": "Édition d'Horodatage - Mode Chrono",
+          "text": "Cliquez sur 'Chronomètre' pour éditer visuellement le début du segment.",
           "target_widget": "correction_timestamp_edit_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_timestamp_edit_button_clicked", "auto_advances": true, "allow_interaction": true }
         },
         {
-          "title": "Étape 26 : Édition d'Horodatage - Ajuster",
-          "text": "Une barre cyan marque le temps de début. Faites glisser cette barre, ou utilisez les contrôles de lecture pour trouver le bon moment. Quand c'est prêt, cliquez sur Suivant.",
+          "title": "Édition d'Horodatage - Ajuster",
+          "text": "Déplacez la barre cyan ou utilisez la lecture pour caler le temps.",
           "target_widget": "correction_timeline_frame",
           "secondary_widgets": ["correction_play_pause_btn", "correction_rewind_btn", "correction_forward_btn", "save_timestamp_btn", "correction_text_area"],
           "panel_position_hint": "above_timeline",
           "validation": { "type": "interactive_widget", "allow_interaction": true }
         },
         {
-          "title": "Étape 27 : Édition d'Horodatage - Sauvegarder",
-          "text": "Super ! Maintenant cliquez sur le bouton 'Sauvegarder' (disquette) pour confirmer. Pour annuler, cliquez à nouveau sur le bouton Chronomètre.",
+          "title": "Édition d'Horodatage - Sauvegarder",
+          "text": "Cliquez sur 'Sauvegarder' (disquette) pour valider.",
           "target_widget": "save_timestamp_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "action_click", "action": "on_save_timestamp_clicked", "auto_advances": true }
         },
         {
-          "title": "Étape 28 : Gestion des Locuteurs - Sélection",
-          "text": "Pour gérer les locuteurs, sélectionnez un segment qui a une étiquette de locuteur (comme SPEAKER_00).",
-          "target_widget": "correction_text_area",
-          "secondary_widgets": ["correction_text_area"],
-          "validation": { "type": "interactive_widget", "allow_interaction": true }
-        },
-        {
-          "title": "Étape 29 : Gestion des Locuteurs - Changement Individuel",
-          "text": "Pour changer le locuteur de ce segment uniquement, cliquez sur le bouton 'Modifier Locuteur' (icône utilisateur). Vous pouvez aussi double-cliquer directement sur le nom du locuteur dans le texte.",
+          "title": "Changer de Locuteur",
+          "text": "Sélectionnez un segment et cliquez sur 'Modifier Locuteur' pour changer la personne.",
           "target_widget": "edit_speaker_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next", "allow_interaction": true }
         },
         {
-          "title": "Étape 30 : Gestion des Locuteurs - Renommer Partout",
-          "text": "Pour renommer un locuteur partout (ex: changer SPEAKER_00 en 'Alice' dans tout le texte), cliquez sur 'Assigner Noms Locuteurs'.",
+          "title": "Renommer les Locuteurs",
+          "text": "Cliquez sur 'Assigner Noms Locuteurs' pour renommer globalement (ex: SPEAKER_00 -> Alice).",
           "target_widget": "correction_assign_speakers_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
           "validation": { "type": "manual_next" }
         },
         {
-          "title": "Étape 31 : Annuler et Rétablir",
-          "text": "Une erreur ? Pas de problème ! Utilisez 'Annuler' pour revenir en arrière, ou 'Rétablir' pour revenir en avant. Les deux boutons sont en surbrillance.",
+          "title": "Annuler et Rétablir",
+          "text": "Utilisez ces boutons en cas d'erreur.",
           "target_widget": "Undo_button",
           "secondary_widgets": ["correction_text_area"],
           "highlight_widgets": ["Redo_Button"],
@@ -490,16 +452,8 @@
           "validation": { "type": "manual_next" }
         },
         {
-          "title": "Étape 32 : Sauvegarder le Travail",
-          "text": "Sauvegardez toujours votre travail ! Cliquez sur 'Sauvegarder' pour exporter votre transcription modifiée vers un nouveau fichier.",
-          "target_widget": "correction_save_changes_btn",
-          "secondary_widgets": ["correction_text_area"],
-          "panel_position_hint": "bottom_right",
-          "validation": { "type": "manual_next" }
-        },
-        {
-          "title": "Étape 33 : Auto-Sauvegarde",
-          "text": "Ne vous inquiétez pas de perdre votre travail - vos modifications sont aussi sauvegardées automatiquement toutes les 2 minutes.",
+          "title": "Sauvegarder",
+          "text": "Cliquez sur 'Sauvegarder' pour exporter. L'auto-sauvegarde est active toutes les 2 minutes.",
           "target_widget": "correction_save_changes_btn",
           "secondary_widgets": ["correction_text_area"],
           "panel_position_hint": "bottom_right",
@@ -507,8 +461,8 @@
         },
         {
           "target_widget": "correction_text_area",
-          "title": "Étape 34 : Tutoriel Terminé !",
-          "text": "Félicitations ! Vous maîtrisez les fonctions essentielles. Vous pouvez maintenant éditer efficacement vos transcriptions. Redémarrez ce tutoriel à tout moment depuis le menu Aide.",
+          "title": "Tutoriel Terminé !",
+          "text": "Félicitations ! Vous êtes prêt. Vous pouvez relancer ce tutoriel via le menu Aide.",
           "validation": { "type": "manual_next" }
         }
     ]

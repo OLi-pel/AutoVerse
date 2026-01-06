@@ -140,6 +140,14 @@ def processing_worker_function(queue, file_paths, options, cache_dir, dest_folde
                 temp_audio_path = None
                 audio_to_process = file_path
                 
+                # --- FIX: Verify file existence before processing ---
+                if not os.path.exists(file_path):
+                    error_msg = f"File not found: {file_path}. It may have been moved or deleted."
+                    worker_logger.error(error_msg)
+                    all_results.append(ProcessedAudioResult(status=constants.STATUS_ERROR, message=error_msg, source_file=file_path))
+                    continue
+                # ----------------------------------------------------
+                
                 if _is_complex_format(file_path):
                     progress_callback(f"Converting {os.path.basename(file_path)}...", 10)
                     temp_audio_path = _convert_to_wav(file_path)

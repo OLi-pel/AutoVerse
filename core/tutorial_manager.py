@@ -26,7 +26,7 @@ class TutorialManager(QObject):
         self.paused_state = None
         self._selection_timer = None
 
-        # Simple timer for occasional overlay maintenance (much less aggressive)
+        # Simple timer for occasional overlay maintenance
         self._raise_timer = QTimer(self)
         self._raise_timer.timeout.connect(self._ensure_overlay_on_top)
 
@@ -40,9 +40,7 @@ class TutorialManager(QObject):
     def _ensure_overlay_on_top(self):
         """Gentle maintenance to keep overlay visible."""
         if self.overlay and self.overlay.isVisible():
-            # Simple raise - no aggressive repainting
             self.overlay.raise_()
-            # Also ensure the panel stays visible
             if hasattr(self.overlay, 'panel') and self.overlay.panel:
                 self.overlay.panel.raise_()
 
@@ -85,16 +83,18 @@ class TutorialManager(QObject):
         self.show_step(self.current_step_index)
         self.overlay.show()
         
-        # Start a gentle timer for occasional maintenance
-        self._raise_timer.start(500) # Check every 500ms - much less aggressive
+        self._raise_timer.start(500)
 
     def _reset_ui_for_tutorial(self):
+        # Reset correction logic
         if hasattr(self.main_app, 'correction_logic'):
             self.main_app.correction_logic.undo_manager.clear()
             self.main_app.correction_logic._clear_all_selections()
         
+        # Reset file selections (visually and logically)
         self.main_app.audio_file_paths = []
         self.main_app.last_single_file_result_path = None
+        self.main_app.window.audio_file_entry.clear()
         self.main_app.window.output_text_area.clear()
         
         # Localize "Ready" status
@@ -104,8 +104,17 @@ class TutorialManager(QObject):
         
         self.main_app.window.progress_bar.setValue(0)
         self.main_app.window.correction_button.setEnabled(False)
-        self.main_app.step1_box.set_summary_text("")
-        self.main_app._set_workflow_step(1)
+        
+        # Reset checkboxes to default state
+        self.main_app.window.identify_speakers_checkbutton.setChecked(False)
+        self.main_app.window.timestamps_checkbutton_2.setChecked(True) # Default usually true
+        
+        # Ensure initial state logic runs (enabling/disabling groups)
+        # We simulate selecting no files by calling select_files logic or just clearing
+        # The main app doesn't have a 'reset' method, but _set_workflow_step(1)
+        # was used before. Since we removed steps, we just ensure the UI is interactive.
+        self.main_app.window.Audio_file_frame.setEnabled(True)
+        self.main_app.window.Processing_options_frame.setEnabled(True) 
 
     def _find_widget(self, name):
         if not name: return None
@@ -140,14 +149,12 @@ class TutorialManager(QObject):
         allow_interaction = validation.get("allow_interaction", False) or validation_type == "wait_for_selection"
         disable_prev_button = step_data.get("disable_prev", False)
         
-        # Update button text based on language
         lang = self.main_app.config_manager.get_language()
         if self.overlay:
             self.overlay.next_button.setText(translations.get_text("tut_finish", lang) if index == len(self.current_tutorial) - 1 else translations.get_text("tut_next", lang))
             self.overlay.prev_button.setText(translations.get_text("tut_prev", lang))
             self.overlay.exit_button.setText(translations.get_text("tut_exit", lang))
 
-        # We construct the "Step X of Y" string here or let overlay handle it if we passed strings
         step_str = translations.get_text("tut_step_of", lang, index + 1, len(self.current_tutorial))
 
         self.overlay.show_step(
@@ -161,17 +168,14 @@ class TutorialManager(QObject):
             highlight_secondary_widgets=highlight_widgets
         )
         
-        # Override the step label manually after show_step because overlay logic hardcodes English
         self.overlay.step_label.setText(step_str)
         
         if not self.overlay.isVisible(): self.overlay.show()
         self.overlay.update()
         
-        # Ensure the timer is running when showing steps
         if not self._raise_timer.isActive():
             self._raise_timer.start(500)
         
-        # Simple raise for all tabs
         self.overlay.raise_()
         
         if is_passive: self.overlay.next_button.setEnabled(True)
@@ -269,24 +273,23 @@ class TutorialManager(QObject):
         next_step_index = self.current_step_index + 1
         
         self.paused_state = { "name": self.current_tutorial_name, "step": next_step_index }
-        self.exit_tutorial(is_pause=True) # Use exit logic to clean up
+        self.exit_tutorial(is_pause=True)
         logger.info(f"Tutorial paused. Will resume at step index {next_step_index}.")
 
     def resume_tutorial(self):
         if not self.paused_state: return
         name, step = self.paused_state["name"], self.paused_state["step"]
         
-        # Re-fetch tutorials in case language changed
         current_lang = self.main_app.config_manager.get_language()
         lang_tutorials = self.tutorials.get(current_lang, self.tutorials.get("English", {}))
         
         self.is_active = True
         self.current_tutorial_name = name
-        self.current_tutorial = lang_tutorials[name] # Use localized version
+        self.current_tutorial = lang_tutorials[name]
         self.current_step_index = step
         self.show_step(self.current_step_index)
         self.overlay.show()
-        self._raise_timer.start(500) # Restart timer on resume
+        self._raise_timer.start(500)
         self.paused_state = None
         logger.info(f"Tutorial resumed at step index {step}.")
 
@@ -294,7 +297,7 @@ class TutorialManager(QObject):
         if not is_pause and self.current_tutorial_name and self.current_tutorial and self.current_step_index >= len(self.current_tutorial) - 1:
             self._mark_tutorial_completed(self.current_tutorial_name)
         
-        self._raise_timer.stop() # --- FIX: Stop the timer on exit ---
+        self._raise_timer.stop()
         self._clear_validation()
         self.current_tutorial, self.current_step_index, self.is_active = None, -1, False
         if not is_pause:
