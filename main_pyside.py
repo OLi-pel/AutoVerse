@@ -44,7 +44,7 @@ def run_app():
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
                                  QPushButton, QComboBox, QFrame, QCheckBox, QProgressBar, QLabel, 
-                                 QTextEdit, QWidget, QTabWidget, QGroupBox, QSpacerItem, QSizePolicy)
+                                 QTextEdit, QWidget, QTabWidget, QGroupBox, QSpacerItem, QSizePolicy, QScrollArea)
     from PySide6.QtGui import QIcon, QFontMetrics, QFont, QFontDatabase, QPixmap
     from PySide6.QtUiTools import QUiLoader
 
@@ -65,6 +65,7 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
+    # ... (HuggingFaceTokenDialog class remains unchanged) ...
     class HuggingFaceTokenDialog(QDialog):
         def __init__(self, current_token, lang="Français", parent=None):
             super().__init__(parent)
@@ -136,65 +137,92 @@ def run_app():
             self.token = self.token_entry.text().strip()
             self.accept()
 
+    # --- WelcomeDialog ---
     class WelcomeDialog(QDialog):
         def __init__(self, lang="Français", parent=None):
             super().__init__(parent)
             self.setWindowTitle(translations.get_text("welcome_title", lang))
             self.choice = None
             self.setModal(True)
-            self.setFixedSize(450, 350)
+            self.setFixedSize(500, 320)
             
             base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
 
             layout = QVBoxLayout(self)
-            layout.setContentsMargins(20, 20, 20, 20)
+            layout.setContentsMargins(30, 30, 30, 30)
             layout.setSpacing(15)
 
             welcome_label = QLabel(translations.get_text("welcome_label", lang))
             welcome_label.setAlignment(Qt.AlignCenter)
-            welcome_label.setStyleSheet("QLabel { font-size: 20px; margin-bottom: 10px; }")
+            welcome_label.setStyleSheet("QLabel { font-size: 22px; font-weight: bold; margin-bottom: 10px; }")
             layout.addWidget(welcome_label)
 
-            self.transcribe_button = QPushButton(translations.get_text("btn_transcribe_new", lang))
-            self.transcribe_button.setIcon(QIcon.fromTheme("document-new", QIcon(os.path.join(icon_dir, 'folder-open.png'))))
-            self.transcribe_button.setMinimumHeight(60)
-            self.transcribe_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
-            self.transcribe_button.clicked.connect(self.select_transcribe)
-            layout.addWidget(self.transcribe_button)
+            # --- Launch Button ---
+            self.launch_button = QPushButton(translations.get_text("btn_launch_app", lang))
+            self.launch_button.setIcon(QIcon.fromTheme("media-playback-start", QIcon(os.path.join(icon_dir, 'forward.png'))))
+            self.launch_button.setMinimumHeight(70)
+            self.launch_button.setCursor(Qt.PointingHandCursor)
+            
+            launch_desc = translations.get_text("btn_launch_desc", lang)
+            self.launch_button.setText(f"{translations.get_text('btn_launch_app', lang)}\n{launch_desc}")
+            self.launch_button.setStyleSheet("""
+                QPushButton { 
+                    font-size: 16px; 
+                    text-align: left; 
+                    padding: 10px 20px;
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    background-color: #f9f9f9;
+                }
+                QPushButton:hover {
+                    background-color: #e6e6e6;
+                    border-color: #999;
+                }
+            """)
+            self.launch_button.clicked.connect(self.select_launch)
+            layout.addWidget(self.launch_button)
 
-            self.edit_button = QPushButton(translations.get_text("btn_edit_existing", lang))
-            self.edit_button.setIcon(QIcon.fromTheme("document-edit", QIcon(os.path.join(icon_dir, 'pencil.png'))))
-            self.edit_button.setMinimumHeight(60)
-            self.edit_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; }")
-            self.edit_button.clicked.connect(self.select_edit)
-            layout.addWidget(self.edit_button)
-
+            # --- Tutorial Button ---
             self.tutorial_button = QPushButton(translations.get_text("btn_tutorial", lang))
             self.tutorial_button.setIcon(QIcon(os.path.join(icon_dir, 'interrogation.png')))
-            self.tutorial_button.setMinimumHeight(60)
-            self.tutorial_button.setStyleSheet("QPushButton { font-size: 16px; text-align: left; padding-left: 10px; background-color: #0078d7; }")
+            self.tutorial_button.setMinimumHeight(70)
+            self.tutorial_button.setCursor(Qt.PointingHandCursor)
+            
+            tut_desc = translations.get_text("btn_tutorial_desc", lang)
+            self.tutorial_button.setText(f"{translations.get_text('btn_tutorial', lang)}\n{tut_desc}")
+            self.tutorial_button.setStyleSheet("""
+                QPushButton { 
+                    font-size: 16px; 
+                    text-align: left; 
+                    padding: 10px 20px; 
+                    background-color: #0078d7; 
+                    color: white;
+                    border: 1px solid #005a9e;
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #106ebe;
+                }
+            """)
             self.tutorial_button.clicked.connect(self.select_tutorial)
             layout.addWidget(self.tutorial_button)
 
             layout.addStretch(1)
 
             self.dont_show_again_checkbox = QCheckBox(translations.get_text("chk_dont_show", lang))
-            self.dont_show_again_checkbox.setStyleSheet("QCheckBox { font-size: 12px; }")
+            self.dont_show_again_checkbox.setStyleSheet("QCheckBox { font-size: 12px; margin-top: 10px; }")
             layout.addWidget(self.dont_show_again_checkbox, 0, Qt.AlignRight)
 
-        def select_transcribe(self):
-            self.choice = 'transcribe'
-            self.accept()
-
-        def select_edit(self):
-            self.choice = 'edit'
+        def select_launch(self):
+            self.choice = 'launch'
             self.accept()
             
         def select_tutorial(self):
             self.choice = 'tutorial'
             self.accept()
 
+    # ... (UpdateChecker class remains unchanged) ...
     class UpdateChecker(QThread):
         update_available = Signal(str, str, str)
         no_update_signal = Signal()
@@ -263,11 +291,13 @@ def run_app():
             # Setup Layouts
             self._setup_main_workflow_layout()
             self._setup_nested_collapsible_options()
+            self._setup_correction_tab_layout()
+            self._setup_settings_tab_layout()
 
             # Logic Controllers
             self.correction_logic = CorrectionViewLogic(self.window, self)
             self.settings_logic = SettingsLogic(self.window, self)
-
+            
             self.tip_widgets = {
                 self.window.audio_file_entry: "audio_file_browse", self.window.browse_button: "audio_file_browse", self.window.identify_speakers_checkbutton: "enable_diarization_checkbox", self.window.auto_merge_checkbutton: "auto_merge_checkbutton", self.window.timestamps_checkbutton_2: "include_timestamps_checkbox", self.window.end_times_checkbutton: "include_end_times_checkbox", self.window.huggingface_token_entry: "huggingface_token_entry", self.window.save_token_button: "save_huggingface_token_button", self.window.start_processing_button: "start_processing_button", self.window.status_label: "status_label", self.window.progress_bar: "progress_bar", self.window.output_text_area: "output_text_area", self.window.correction_button: "correction_window_button", self.window.show_tips_checkbox: "show_tips_checkbox_main",
             }
@@ -298,7 +328,6 @@ def run_app():
             QTimer.singleShot(0, self.run_startup_logic)
 
         def retranslateUi(self):
-            """Applies text from the translation dictionary to all UI elements."""
             lang = self.current_language
             
             # Window Title
@@ -314,36 +343,32 @@ def run_app():
             self.step2_box.title_label.setText(translations.get_text("step2_title", lang))
             self.step3_box.title_label.setText(translations.get_text("step3_title", lang))
             
-            # Re-generate summaries based on current state to ensure correct language
+            # Correction Load Box Title
+            if hasattr(self, 'correction_load_box'):
+                 self.correction_load_box.title_label.setText(translations.get_text("grp_load_files", lang))
+
+            # Re-generate summaries based on current state
             if self.current_step == 1:
-                # Step 1 is active, Step 2/3 are disabled/waiting
                 if self.audio_file_paths:
                     summary = translations.get_text("step1_summary_selected", lang, len(self.audio_file_paths), os.path.basename(self.audio_file_paths[0]))
                     if len(self.audio_file_paths) > 1: summary += ", ..."
                     self.step1_box.set_summary_text(summary)
                 else:
                     self.step1_box.set_summary_text(translations.get_text("step1_summary_empty", lang))
-                
                 self.step2_box.set_summary_text(translations.get_text("step2_summary_default", lang))
                 self.step3_box.set_summary_text(translations.get_text("step3_summary_default", lang))
-                
             elif self.current_step == 2:
-                # Step 2 is active
                 if self.audio_file_paths:
                     summary = translations.get_text("step1_summary_selected", lang, len(self.audio_file_paths), os.path.basename(self.audio_file_paths[0]))
                     if len(self.audio_file_paths) > 1: summary += ", ..."
                     self.step1_box.set_summary_text(summary)
-                
                 self.step2_box.set_summary_text("")
                 self.step3_box.set_summary_text(translations.get_text("step3_summary_default", lang))
-                
             elif self.current_step == 3:
-                # Step 3 is active, Step 2 has config summary
                 if self.audio_file_paths:
                     summary = translations.get_text("step1_summary_selected", lang, len(self.audio_file_paths), os.path.basename(self.audio_file_paths[0]))
                     if len(self.audio_file_paths) > 1: summary += ", ..."
                     self.step1_box.set_summary_text(summary)
-                
                 options = self.get_processing_options()
                 model = options[constants.OPTION_MODEL]
                 diarize = "Diarization" if options[constants.OPTION_DIARIZE] else "No Diarization"
@@ -357,7 +382,7 @@ def run_app():
             
             # Step 2 Internal
             self.window.Processing_options_frame.setTitle(translations.get_text("grp_processing_options", lang))
-            self.window.Model_selection_frame.setTitle(translations.get_text("grp_model", lang))
+            # Model selection frame title removed because frame was removed
             self.window.Speaker_options_frame.setTitle(translations.get_text("grp_speaker", lang))
             self.window.identify_speakers_checkbutton.setText(translations.get_text("chk_identify_speakers", lang))
             self.window.save_token_button.setText(translations.get_text("btn_manage_token", lang))
@@ -435,14 +460,12 @@ def run_app():
                 else: 
                     self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
             
-            if user_choice == 'edit':
-                self.window.main_tab_widget.setCurrentIndex(1)
-            
             self.window.show()
             
             if user_choice == 'tutorial':
                 QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
         
+        # ... (check_for_updates functions remain unchanged) ...
         def check_for_updates_automatic(self):
             self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse", manual_check=False)
             self.update_checker.update_available.connect(self.prompt_for_update)
@@ -469,11 +492,12 @@ def run_app():
                 lambda: self.tutorial_manager.start_tutorial("main_tutorial")
             )
         
+        # --- REDESIGNED: Step 2 Layout (Reverted Colors, Model removed) ---
         def _setup_main_workflow_layout(self):
             transcription_tab = self.window.findChild(QWidget, "tab")
             transcription_tab_layout = transcription_tab.layout().findChild(QVBoxLayout)
 
-            # Titles are set in retranslateUi, passing empty here for init
+            # Titles are set in retranslateUi
             self.step1_box = CollapsibleBox("", "")
             self.step2_box = CollapsibleBox("", "")
             self.step3_box = CollapsibleBox("", "")
@@ -485,35 +509,32 @@ def run_app():
                 step1_new_content_layout.addItem(item)
             self.step1_box.setContentLayout(step1_new_content_layout)
 
+            # Grid Layout for Step 2
             speaker_frame = self.window.Speaker_options_frame
             timestamps_frame = self.window.Timestamps_options_frame
+            token_frame = self.window.huggingface_token_frame
             
-            # --- FIX: Ensure Model_selection_frame is included ---
-            model_frame = self.window.Model_selection_frame
-            # --- END FIX ---
+            step2_grid = QGridLayout()
+            step2_grid.setSpacing(15)
             
-            speaker_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            timestamps_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-            step2_content_hlayout = QHBoxLayout()
-            step2_content_hlayout.addWidget(model_frame) # Added model frame
-            step2_content_hlayout.addWidget(speaker_frame)
-            step2_content_hlayout.addWidget(timestamps_frame)
+            # Row 0: Left -> Speaker, Right -> Timestamps
+            step2_grid.addWidget(speaker_frame, 0, 0)
+            step2_grid.addWidget(timestamps_frame, 0, 1)
+            
+            # Row 1: Token Frame (Full Width)
+            step2_grid.addWidget(token_frame, 1, 0, 1, 2)
             
             self.step2_new_content_layout = QVBoxLayout()
-            self.step2_new_content_layout.addLayout(step2_content_hlayout)
-            
-            # --- FIX: Add token frame to layout ---
-            self.step2_new_content_layout.addWidget(self.window.huggingface_token_frame)
-            # --- END FIX ---
-            
+            self.step2_new_content_layout.addLayout(step2_grid)
             self.step2_box.setContentLayout(self.step2_new_content_layout)
             
+            # Step 3
             step3_content_layout = QVBoxLayout()
             step3_content_layout.addWidget(self.window.status_and_play_frame)
             step3_content_layout.addWidget(self.window.Output_area_frame)
             self.step3_box.setContentLayout(step3_content_layout)
 
+            # Unparent originals
             self.window.Audio_file_frame.setParent(None)
             self.window.Processing_options_frame.setParent(None)
             
@@ -530,6 +551,18 @@ def run_app():
             
             self.proceed_button = QPushButton("Continue to Processing")
             self.proceed_button.setObjectName("proceed_button")
+            # Style the continue button to stand out
+            self.proceed_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #0078d7;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background-color: #106ebe; }
+            """)
+            
             button_container_layout = QHBoxLayout()
             button_container_layout.addStretch()
             button_container_layout.addWidget(self.proceed_button)
@@ -539,6 +572,7 @@ def run_app():
             transcription_tab_layout.addStretch(1)
 
         def _setup_nested_collapsible_options(self):
+            # ... (Unchanged) ...
             speaker_frame_layout = self.window.Speaker_options_frame.layout()
             self.others_speaker_box = CollapsibleBox("Others", is_compact=True)
             self.others_speaker_box.addWidget(self.window.auto_merge_checkbutton)
@@ -550,6 +584,64 @@ def run_app():
             self.others_timestamp_box.addWidget(self.window.end_times_checkbutton)
             timestamp_frame_layout.addWidget(self.others_timestamp_box)
             self.others_timestamp_box.collapse()
+            
+        # --- Correction Tab Layout w/ Collapsible (Fix Duplicate Title) ---
+        def _setup_correction_tab_layout(self):
+            correction_tab = self.window.findChild(QWidget, "tab_2")
+            original_layout = correction_tab.layout()
+            
+            original_load_frame = self.window.findChild(QGroupBox, "Load_objects_frame")
+            if not original_load_frame:
+                logger.error("Could not find Load_objects_frame to wrap.")
+                return
+
+            self.correction_load_box = CollapsibleBox("Load Files")
+            self.correction_load_box.expand() 
+
+            original_layout.removeWidget(original_load_frame)
+            
+            self.correction_load_box.addWidget(original_load_frame)
+            
+            # --- FIX: Remove title and border to avoid duplication ---
+            original_load_frame.setTitle("")
+            original_load_frame.setStyleSheet("QGroupBox { border: none; margin-top: 0px; }")
+
+            original_layout.insertWidget(0, self.correction_load_box)
+
+        # --- Settings Tab Redesign (Reverted Colors) ---
+        def _setup_settings_tab_layout(self):
+            settings_tab = self.window.findChild(QWidget, "tab_3")
+            layout = settings_tab.layout()
+            if not layout: return 
+            
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setFrameShape(QFrame.NoFrame)
+            
+            content_widget = QWidget()
+            content_layout = QVBoxLayout(content_widget)
+            content_layout.setSpacing(20)
+            content_layout.setContentsMargins(20, 20, 20, 20)
+            
+            # Grab existing groups
+            appearance_group = self.window.findChild(QGroupBox, "appearance_group")
+            app_group = self.window.findChild(QGroupBox, "application_group")
+            danger_group = self.window.findChild(QGroupBox, "danger_zone_group")
+            
+            # Add to new layout
+            content_layout.addWidget(appearance_group)
+            content_layout.addWidget(app_group)
+            content_layout.addWidget(danger_group)
+            content_layout.addStretch(1)
+            
+            scroll_area.setWidget(content_widget)
+            
+            # Clear old layout
+            while layout.count():
+                child = layout.takeAt(0)
+                if child.widget(): child.widget().setParent(None)
+            
+            layout.addWidget(scroll_area)
 
         def _apply_tips_state(self, is_enabled):
             self.window.statusBar().setVisible(is_enabled)
@@ -625,9 +717,7 @@ def run_app():
             self.window.status_and_play_frame = self.window.findChild(QGroupBox, "status_and_play_frame")
             self.window.Output_area_frame = self.window.findChild(QGroupBox, "Output_area_frame")
             
-            # --- FIX: Promote Model_selection_frame ---
-            self.window.Model_selection_frame = self.window.findChild(QGroupBox, "Model_selection_frame")
-            # --- END FIX ---
+            # Note: Model_selection_frame promotion removed as it was deleted from UI
             
             self.window.Speaker_options_frame = self.window.findChild(QGroupBox, "Speaker_options_frame")
             self.window.Timestamps_options_frame = self.window.findChild(QGroupBox, "Timestamps_options_frame")
@@ -886,6 +976,7 @@ def run_app():
 
         @Slot()
         def start_or_abort_processing(self):
+            # ... (Unchanged) ...
             if self.is_processing and self.process:
                 if self.process.is_alive():
                     self.process.terminate()
@@ -935,6 +1026,7 @@ def run_app():
             self.timer.start(100)
 
         def check_queue(self):
+            # ... (Unchanged) ...
             try:
                 msg_type, data = self.queue.get_nowait()
 
@@ -982,6 +1074,7 @@ def run_app():
                 return f"{mins}m {secs:02d}s"
 
         def handle_batch_results(self, final_payload):
+            # ... (Unchanged) ...
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]
             summary = []
             successful_count = 0
@@ -1021,6 +1114,7 @@ def run_app():
                 QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
         
         def prompt_and_save_single_result(self, result):
+            # ... (Unchanged) ...
             if hasattr(result, 'output_path') and result.output_path:
                 self.last_single_file_result_path = result.output_path
                 self.window.correction_button.setEnabled(True)

@@ -66,11 +66,12 @@ TRANSLATIONS = {
         "btn_reset_app": "Reset Application Data",
 
         # --- Dialogs & Messages ---
-        "welcome_title": "Welcome to AutoVerse!",
-        "welcome_label": "What would you like to do?",
-        "btn_transcribe_new": " Transcribe a New Audio/Video File",
-        "btn_edit_existing": " Edit an Existing Transcript",
-        "btn_tutorial": " Start the Interactive Tutorial",
+        "welcome_title": "Welcome to AutoVerse",
+        "welcome_label": "How would you like to start?",
+        "btn_launch_app": " Launch Application",
+        "btn_launch_desc": "Go straight to the main interface",
+        "btn_tutorial": " Interactive Tutorial",
+        "btn_tutorial_desc": "Learn how to use the app step-by-step",
         "chk_dont_show": "Don't show this again",
         "hf_dialog_title": "Hugging Face Token Setup",
         "hf_group_why": "Why is this needed?",
@@ -195,11 +196,12 @@ TRANSLATIONS = {
         "btn_reset_app": "Réinitialiser l'Application",
 
         # --- Dialogs & Messages ---
-        "welcome_title": "Bienvenue sur AutoVerse !",
-        "welcome_label": "Que souhaitez-vous faire ?",
-        "btn_transcribe_new": " Transcrire un nouveau fichier Audio/Vidéo",
-        "btn_edit_existing": " Éditer une transcription existante",
-        "btn_tutorial": " Démarrer le Tutoriel Interactif",
+        "welcome_title": "Bienvenue sur AutoVerse",
+        "welcome_label": "Comment souhaitez-vous commencer ?",
+        "btn_launch_app": " Lancer l'Application", # NEW
+        "btn_launch_desc": "Accéder directement à l'interface principale", # NEW
+        "btn_tutorial": " Tutoriel Interactif",
+        "btn_tutorial_desc": "Apprendre à utiliser l'application étape par étape", # NEW
         "chk_dont_show": "Ne plus afficher ceci",
         "hf_dialog_title": "Configuration Token Hugging Face",
         "hf_group_why": "Pourquoi est-ce nécessaire ?",
