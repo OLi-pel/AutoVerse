@@ -15,32 +15,39 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 # FIX 3: WINDOWS DLL LOADING (Fixes WinError 1114)
 # ==============================================================================
 if sys.platform == 'win32':
+    # 1. Force the torch/lib directory into the system PATH
+    # This allows dependencies of dependencies to be found
     if getattr(sys, 'frozen', False):
         base_dir = sys._MEIPASS
-        try:
-            os.add_dll_directory(base_dir)
-            os.add_dll_directory(os.path.join(base_dir, 'torch', 'lib'))
-        except Exception:
-            pass
+        torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        import torch
+        torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
 
-    # Aggressively preload critical DLLs
-    def preload_dlls():
-        import ctypes
+    # Add to PATH immediately
+    if os.path.exists(torch_lib_path):
+        os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
         try:
-            search_paths = [
-                sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(__file__),
-                os.path.join(sys._MEIPASS, 'torch', 'lib') if getattr(sys, 'frozen', False) else None
-            ]
-            # libiomp5md.dll is the usual suspect for 1114 errors
-            dll_names = ['libiomp5md.dll', 'mkl_core.dll', 'c10.dll']
-            for folder in search_paths:
-                if not folder or not os.path.exists(folder): continue
-                for dll in dll_names:
-                    full_path = os.path.join(folder, dll)
-                    if os.path.exists(full_path):
-                        try: ctypes.CDLL(full_path)
-                        except Exception: pass
-        except Exception: pass
+            os.add_dll_directory(torch_lib_path)
+        except AttributeError:
+            pass # add_dll_directory doesn't exist on old Python/Windows versions
+
+    # 2. Aggressively preload critical DLLs
+    import ctypes
+    def preload_dlls():
+        # List of DLLs that commonly cause 1114 if not pre-loaded
+        dlls = ['libiomp5md.dll', 'mkl_core.dll', 'c10.dll', 'torch_cpu.dll']
+        
+        for dll in dlls:
+            dll_path = os.path.join(torch_lib_path, dll)
+            if os.path.exists(dll_path):
+                try:
+                    # RTLD_GLOBAL is needed to make symbols available to subsequent loads
+                    ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL if hasattr(ctypes, 'RTLD_GLOBAL') else 0)
+                except Exception as e:
+                    print(f"Warning: Failed to preload {dll}: {e}")
+    
     preload_dlls()
 # ==============================================================================
 
@@ -235,30 +242,40 @@ def run_app():
     Contains all application logic and imports.
     """
     # ==============================================================================
-    # FIX 2: FORCE-CREATE AudioMetaData (The "Nuclear" Fix for macOS/New Torch)
+    # FIX 2: FORCE-CREATE AudioMetaData & BACKENDS (The "Nuclear" Fix for macOS/New Torch)
     # Placed here inside run_app to ensure imports work correctly.
     # ==============================================================================
     try:
-        import torch # Importing torch first often resolves DLL loading issues for torchaudio
+        import torch 
         import torchaudio
         
+        # --- NEW FIX: Polyfill list_audio_backends for torchaudio 2.1+ ---
+        if not hasattr(torchaudio, 'list_audio_backends'):
+            def _list_audio_backends():
+                # Return standard backends available on macOS
+                return ['soundfile', 'ffmpeg'] 
+            setattr(torchaudio, 'list_audio_backends', _list_audio_backends)
+        
+        # --- NEW FIX: Polyfill get_audio_backend just in case ---
+        if not hasattr(torchaudio, 'get_audio_backend'):
+            def _get_audio_backend():
+                return 'soundfile'
+            setattr(torchaudio, 'get_audio_backend', _get_audio_backend)
+        # -----------------------------------------------------------------
+
         if not hasattr(torchaudio, 'AudioMetaData'):
             try:
-                # Try finding it in the old location (intermediate versions)
                 from torchaudio.backend.common import AudioMetaData
                 setattr(torchaudio, 'AudioMetaData', AudioMetaData)
             except ImportError:
                 # If completely missing (newest versions), CREATE IT manually
-                # We use collections.namedtuple which must be imported
                 AudioMetaData = collections.namedtuple(
                     'AudioMetaData', 
                     ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding']
                 )
                 setattr(torchaudio, 'AudioMetaData', AudioMetaData)
-                # logging.info("Applied polyfill for torchaudio.AudioMetaData")
     except Exception as e:
-        print(f"Warning: Failed to apply AudioMetaData fix: {e}")
-        # We don't exit here, hoping it might work or crash explicitly later
+        print(f"Warning: Failed to apply AudioMetaData/Backend fix: {e}")
     # ==============================================================================
 
     # --- FIX: Preload Torch DLLs on Windows to prevent WinError 1114 ---
