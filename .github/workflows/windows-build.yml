@@ -33,7 +33,7 @@ jobs:
           # --- CHANGE: REMOVE the --index-url flag to get the full CUDA version ---
           # OLD: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           # NEW: Just install normally (gets CUDA 12.x or 11.x by default on Windows)
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install torch torchvision torchaudio
           
           # Install the rest
           pip install -r requirements.txt
