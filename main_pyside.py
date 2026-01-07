@@ -6,96 +6,88 @@ import os
 import collections
 import logging
 import ctypes
+import site
+import shutil
 
 # ==============================================================================
 # NUCLEAR FIX: MANUAL DLL INJECTION
-# Force-loads the correct OpenMP runtime to prevent WinError 1114
 # ==============================================================================
 if sys.platform == 'win32':
-    # 1. Allow duplicates to prevent MKL/OMP errors
+    # Allow duplicates to prevent MKL/OMP errors
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-
-    # 2. Determine the application root directory
+    
+    # --- GRAPHICS FIX FOR OLD HARDWARE ---
+    # Default (Direct3D) is safer for Optiplex 9010/older Intel GPUs.
+    os.environ["QT_API"] = "pyside6"
+    os.environ["QSG_RHI_BACKEND"] = "opengl"
+    
     frozen_app = getattr(sys, 'frozen', False)
     if frozen_app:
         if hasattr(sys, '_MEIPASS'):
-            # OneFile mode
             base_dir = sys._MEIPASS
         else:
-            # OneDir mode: The executables are here
             base_dir = os.path.dirname(sys.executable)
-            
-            # PyInstaller >= v6 often puts dependencies in a subdirectory named '_internal'
-            # We must check if that exists and treat it as the library root
             internal_dir = os.path.join(base_dir, '_internal')
             if os.path.exists(internal_dir):
                 base_dir = internal_dir
     else:
-        # Development mode
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # 3. Define critical paths to search for DLLs
+    # Search paths for DLLs
     search_paths = [
-        base_dir,                                   # Root / _internal
-        os.path.join(base_dir, 'torch', 'lib'),     # PyTorch Libs
+        base_dir,
+        os.path.join(base_dir, 'torch', 'lib'),
+        os.path.join(os.environ['SystemRoot'], 'System32'),
     ]
-
-    # 4. CRITICAL DLLs: Order matters. Dependencies first.
-    # libiomp5md.dll is the specific cause of WinError 1114 for c10.dll
-    critical_dlls = [
-        "libiomp5md.dll",      # Intel OpenMP Runtime
-        "vcruntime140_1.dll",  # C++ Runtime (often missing)
-        "msvcp140_1.dll",      # C++ Runtime
-    ]
-
-    print(f"--- [DEBUG] Pre-loading Critical DLLs from {base_dir} ---")
     
-    # 5. Add paths to Windows DLL search directory (Python 3.8+)
+    if not frozen_app:
+        site_packages = site.getsitepackages()
+        for sp in site_packages:
+            torch_lib = os.path.join(sp, 'torch', 'lib')
+            if os.path.exists(torch_lib):
+                search_paths.append(torch_lib)
+
+    critical_dlls = ["vcruntime140_1.dll", "msvcp140_1.dll", "libiomp5md.dll"]
+
+    print(f"--- [DEBUG] Pre-loading Critical DLLs ---")
     for path in search_paths:
         if os.path.exists(path):
             try:
                 os.add_dll_directory(path)
             except (AttributeError, OSError):
                 pass
-            # Also update PATH as a fallback
             os.environ['PATH'] = path + os.pathsep + os.environ['PATH']
 
-    # 6. FORCE LOAD DLLs
     for dll_name in critical_dlls:
         loaded = False
         for path in search_paths:
             dll_path = os.path.join(path, dll_name)
             if os.path.exists(dll_path):
                 try:
-                    # RTLD_GLOBAL is ignored on Windows but we load it to lock it in process memory
                     ctypes.CDLL(dll_path)
                     print(f"--- [DEBUG] Successfully force-loaded: {dll_path}")
                     loaded = True
                     break
-                except OSError as e:
-                    print(f"--- [DEBUG] Failed to load {dll_name} from {path}: {e}")
-        
+                except OSError:
+                    pass
         if not loaded:
             print(f"--- [DEBUG] Warning: Could not find/load {dll_name}")
 
 # ==============================================================================
 # IMPORT TORCH EARLY
 # ==============================================================================
-# We import torch immediately after force-loading the DLLs.
-# This ensures PyTorch grabs the handles we just opened.
 try:
     import torch
     import torchaudio
-    
-    # Apply Torchaudio polyfills
     if not hasattr(torchaudio, 'list_audio_backends'):
         setattr(torchaudio, 'list_audio_backends', lambda: ['soundfile', 'ffmpeg'])
     if not hasattr(torchaudio, 'get_audio_backend'):
         setattr(torchaudio, 'get_audio_backend', lambda: 'soundfile')
     if not hasattr(torchaudio, 'AudioMetaData'):
         try:
-            from torchaudio.backend.common import AudioMetaData
+            # Pylance warning here is expected and safe to ignore
+            from torchaudio.backend.common import AudioMetaData # type: ignore
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
         except ImportError:
             AudioMetaData = collections.namedtuple('AudioMetaData', ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'])
@@ -116,7 +108,7 @@ from packaging.version import Version
 from PySide6.QtWidgets import QApplication
 
 def configure_ssl_for_bundle():
-    """Configures SSL for PyInstaller bundles (macOS fix)."""
+    """Configures SSL for PyInstaller bundles."""
     if sys.platform == 'darwin' and getattr(sys, 'frozen', False):
         try:
             cert_path = certifi.where()
@@ -126,164 +118,61 @@ def configure_ssl_for_bundle():
             print(f"CRITICAL: Failed to configure SSL certificates for bundle. Error: {e}")
 
 def _get_bundled_ffmpeg_path():
-    """Checks if the app is a PyInstaller bundle and returns the path to ffmpeg."""
+    """Checks if the app is a PyInstaller bundle OR running from source and returns ffmpeg path."""
     if getattr(sys, 'frozen', False):
         if hasattr(sys, '_MEIPASS'):
             base_dir = sys._MEIPASS
         else:
             base_dir = os.path.dirname(sys.executable)
-            # Handle PyInstaller 6+ _internal folder if necessary, 
-            # though ffmpeg usually sits next to the exe or in _internal
             if os.path.exists(os.path.join(base_dir, '_internal')):
-                # If bin is inside _internal
                 if os.path.exists(os.path.join(base_dir, '_internal', 'bin')):
                     base_dir = os.path.join(base_dir, '_internal')
-            
-        exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
-        return os.path.join(base_dir, 'bin', exe_name)
-    return None
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+    potential_path = os.path.join(base_dir, 'bin', exe_name)
+    
+    if os.path.exists(potential_path):
+        return potential_path
+    
+    return shutil.which('ffmpeg')
 
 def apply_modern_theme(app):
-    """Applies a modern dark theme using Fusion style and custom CSS."""
     app.setStyle("Fusion")
-    
-    # Modern Dark Palette
     dark_qss = """
-    QWidget {
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        font-family: "Segoe UI", "Helvetica Neue", "Arial", sans-serif;
-        font-size: 14px;
-    }
-    QGroupBox {
-        border: 1px solid #3e3e3e;
-        border-radius: 6px;
-        margin-top: 20px;
-        background-color: transparent;
-        padding-top: 10px;
-    }
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        subcontrol-position: top left;
-        padding: 0px 5px;
-        background-color: transparent; 
-        color: #e0e0e0;
-        font-weight: bold;
-    }
-    QLabel, QCheckBox, QRadioButton {
-        background-color: transparent;
-    }
-    QLineEdit, QTextEdit, QPlainTextEdit {
-        background-color: #3c3c3c;
-        border: 1px solid #3e3e3e;
-        border-radius: 4px;
-        padding: 4px;
-        color: #d4d4d4;
-        selection-background-color: #264f78;
-    }
-    QLineEdit:focus, QTextEdit:focus {
-        border: 1px solid #007acc;
-    }
-    QPushButton {
-        background-color: #3c3c3c;
-        border: 1px solid #3e3e3e;
-        border-radius: 4px;
-        padding: 6px 12px;
-        color: #ffffff;
-    }
-    QPushButton:hover {
-        background-color: #4c4c4c;
-    }
-    QPushButton:pressed {
-        background-color: #2c2c2c;
-    }
-    QPushButton:disabled {
-        background-color: #252526;
-        color: #666666;
-        border: 1px solid #2d2d2d;
-    }
-    QPushButton#correction_save_changes_btn, QPushButton#start_processing_button {
-        background-color: #007acc;
-        border: 1px solid #007acc;
-    }
-    QPushButton#correction_save_changes_btn:hover, QPushButton#start_processing_button:hover {
-        background-color: #0062a3;
-    }
-    QTabWidget::pane {
-        border: 1px solid #3e3e3e;
-        background-color: #1e1e1e;
-    }
-    QTabBar::tab {
-        background-color: #2d2d2d;
-        color: #999999;
-        padding: 8px 16px;
-        border-top-left-radius: 4px;
-        border-top-right-radius: 4px;
-        margin-right: 2px;
-    }
-    QTabBar::tab:selected {
-        background-color: #1e1e1e;
-        color: #ffffff;
-        border-top: 2px solid #007acc;
-    }
-    QTabBar::tab:hover {
-        background-color: #3e3e3e;
-    }
-    QCheckBox {
-        spacing: 8px;
-    }
-    QCheckBox::indicator {
-        width: 18px;
-        height: 18px;
-        background-color: #3c3c3c;
-        border: 1px solid #555555;
-        border-radius: 3px;
-    }
-    QCheckBox::indicator:checked {
-        background-color: #007acc;
-        border: 1px solid #007acc;
-        image: url(assets/icons/check.png); 
-    }
-    QScrollBar:vertical {
-        border: none;
-        background: #1e1e1e;
-        width: 12px;
-        margin: 0px;
-    }
-    QScrollBar::handle:vertical {
-        background: #424242;
-        min-height: 20px;
-        border-radius: 6px;
-    }
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-        height: 0px;
-    }
-    QProgressBar {
-        border: 1px solid #3e3e3e;
-        border-radius: 4px;
-        text-align: center;
-        background-color: #252526;
-    }
-    QProgressBar::chunk {
-        background-color: #007acc;
-        border-radius: 3px;
-    }
-    QStatusBar {
-        background-color: #007acc;
-        color: white;
-    }
+    QWidget { background-color: #1e1e1e; color: #d4d4d4; font-family: "Segoe UI", "Helvetica Neue", "Arial", sans-serif; font-size: 14px; }
+    QGroupBox { border: 1px solid #3e3e3e; border-radius: 6px; margin-top: 20px; background-color: transparent; padding-top: 10px; }
+    QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0px 5px; background-color: transparent; color: #e0e0e0; font-weight: bold; }
+    QLabel, QCheckBox, QRadioButton { background-color: transparent; }
+    QLineEdit, QTextEdit, QPlainTextEdit { background-color: #3c3c3c; border: 1px solid #3e3e3e; border-radius: 4px; padding: 4px; color: #d4d4d4; selection-background-color: #264f78; }
+    QLineEdit:focus, QTextEdit:focus { border: 1px solid #007acc; }
+    QPushButton { background-color: #3c3c3c; border: 1px solid #3e3e3e; border-radius: 4px; padding: 6px 12px; color: #ffffff; }
+    QPushButton:hover { background-color: #4c4c4c; }
+    QPushButton:pressed { background-color: #2c2c2c; }
+    QPushButton:disabled { background-color: #252526; color: #666666; border: 1px solid #2d2d2d; }
+    QPushButton#correction_save_changes_btn, QPushButton#start_processing_button { background-color: #007acc; border: 1px solid #007acc; }
+    QPushButton#correction_save_changes_btn:hover, QPushButton#start_processing_button:hover { background-color: #0062a3; }
+    QTabWidget::pane { border: 1px solid #3e3e3e; background-color: #1e1e1e; }
+    QTabBar::tab { background-color: #2d2d2d; color: #999999; padding: 8px 16px; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }
+    QTabBar::tab:selected { background-color: #1e1e1e; color: #ffffff; border-top: 2px solid #007acc; }
+    QTabBar::tab:hover { background-color: #3e3e3e; }
+    QCheckBox { spacing: 8px; }
+    QCheckBox::indicator { width: 18px; height: 18px; background-color: #3c3c3c; border: 1px solid #555555; border-radius: 3px; }
+    QCheckBox::indicator:checked { background-color: #007acc; border: 1px solid #007acc; image: url(assets/icons/check.png); }
+    QScrollBar:vertical { border: none; background: #1e1e1e; width: 12px; margin: 0px; }
+    QScrollBar::handle:vertical { background: #424242; min-height: 20px; border-radius: 6px; }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+    QProgressBar { border: 1px solid #3e3e3e; border-radius: 4px; text-align: center; background-color: #252526; }
+    QProgressBar::chunk { background-color: #007acc; border-radius: 3px; }
+    QStatusBar { background-color: #007acc; color: white; }
     """
     app.setStyleSheet(dark_qss)
 
 def run_app():
-    """
-    Contains all application logic and imports.
-    """
     if sys.platform == 'win32':
         multiprocessing.freeze_support()
 
-    # Move imports INSIDE run_app to ensure nothing (like numpy) loads 
-    # before our manual DLL injection above has finished.
     import time
     from PySide6.QtCore import QObject, Slot, QTimer, QThread, Signal, Qt
     from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QDialogButtonBox, QFileDialog, QMessageBox, QLineEdit, 
@@ -296,8 +185,6 @@ def run_app():
     from utils import constants
     from utils import translations 
     from utils.config_manager import ConfigManager
-    
-    # Import logic controllers - Logic here triggers further imports
     from ui.correction_view_logic import CorrectionViewLogic
     from ui.settings_logic import SettingsLogic
     from core.app_worker import processing_worker_function
@@ -310,9 +197,6 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    # ... (HuggingFaceTokenDialog, WelcomeDialog, UpdateChecker, MainApplication classes)
-    # ... (These classes are standard and unchanged, assumed to be here as in previous versions)
-    
     class HuggingFaceTokenDialog(QDialog):
         def __init__(self, current_token, lang="Français", parent=None):
             super().__init__(parent)
@@ -474,9 +358,6 @@ def run_app():
             self.connect_signals(); self.load_initial_settings(); self.retranslateUi()
             QTimer.singleShot(0, self.run_startup_logic)
 
-        # ... (Abbreviated: Keeping all standard methods retranslateUi, run_startup_logic, check_for_updates, etc.)
-        # ... (The key changes were in imports and init above)
-        
         def retranslateUi(self):
             lang = self.current_language
             self.window.setWindowTitle(translations.get_text("window_title", lang, constants.APP_VERSION))
@@ -534,16 +415,25 @@ def run_app():
                 logger.info(f"New version detected ({last_seen_version} -> {constants.APP_VERSION}). Forcing welcome wizard.")
                 self.config_manager.set_show_welcome_wizard(True)
                 self.config_manager.set_last_seen_version(constants.APP_VERSION)
+            
+            # --- SAFE WELCOME WIZARD LAUNCH ---
             user_choice = None
             if self.config_manager.get_show_welcome_wizard():
-                welcome_dialog = WelcomeDialog(self.current_language, self.window)
-                if welcome_dialog.exec() == QDialog.Accepted:
-                    self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
-                    user_choice = welcome_dialog.choice
-                else: 
-                    self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
+                try:
+                    welcome_dialog = WelcomeDialog(self.current_language, self.window)
+                    # Use a timer to ensure the dialog shows up properly after loop starts
+                    if welcome_dialog.exec() == QDialog.Accepted:
+                        self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
+                        user_choice = welcome_dialog.choice
+                    else: 
+                        self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
+                except Exception as e:
+                    logger.error(f"Failed to show welcome wizard: {e}")
+            
+            # Ensure main window is shown regardless of dialog success
             self.window.show()
-            if user_choice == 'tutorial': QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
+            if user_choice == 'tutorial': 
+                QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
 
         def check_for_updates_automatic(self):
             self.update_checker = UpdateChecker(owner="OLi-pel", repo="AutoVerse", manual_check=False)
@@ -649,10 +539,16 @@ def run_app():
             self.window.merge_segments_btn = self.window.findChild(QPushButton, "merge_segments_btn"); self.window.text_font_combo = self.window.findChild(QComboBox, "text_font"); self.window.font_size_combo = self.window.findChild(QComboBox, "Police_size")
 
         def _setup_fonts(self):
-            font_id = QFontDatabase.font("Monaco", "Roman", 12)
-            if font_id == -1: self.window.monospace_font = QFont("Monospace", 12)
-            else: self.window.monospace_font = QFont("Monaco")
+            font_families = QFontDatabase.families()
+            if "Monaco" in font_families:
+                self.window.monospace_font = QFont("Monaco", 12)
+            else:
+                self.window.monospace_font = QFont("Monospace", 12)
             self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
+            
+            self.window.text_font_combo.addItems(font_families)
+            default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"
+            self.window.text_font_combo.setCurrentText(default_font)
 
         def _setup_icons(self):
             if hasattr(sys, '_MEIPASS'): base_dir = sys._MEIPASS
@@ -685,11 +581,30 @@ def run_app():
 
         @Slot(int)
         def toggle_speaker_options(self, state):
-            is_checked = (state == Qt.CheckState.Checked.value); self.window.auto_merge_checkbutton.setEnabled(is_checked)
-            if not is_checked: self.window.auto_merge_checkbutton.setChecked(False)
-            self.window.save_token_button.setVisible(is_checked)
+            is_checked = (state == Qt.CheckState.Checked.value)
+            
+            # --- BUG FIX: CHECK TOKEN FIRST ---
+            # Don't update UI until we verify token presence/adding success.
+            
             if is_checked:
-                if not self.config_manager.load_huggingface_token(): self.show_hf_token_dialog(is_mandatory=True)
+                # 1. Try to load existing token
+                if not self.config_manager.load_huggingface_token():
+                    # 2. No token? Prompt user
+                    self.show_hf_token_dialog(is_mandatory=True)
+                    
+                    # 3. Check again after dialog
+                    if not self.config_manager.load_huggingface_token():
+                        # User cancelled. Revert UI check state without re-triggering logic
+                        self.window.identify_speakers_checkbutton.blockSignals(True)
+                        self.window.identify_speakers_checkbutton.setChecked(False)
+                        self.window.identify_speakers_checkbutton.blockSignals(False)
+                        return # Abort enabling UI elements
+
+            # Only reach here if we have a token (or we are unchecking)
+            self.window.auto_merge_checkbutton.setEnabled(is_checked)
+            if not is_checked:
+                self.window.auto_merge_checkbutton.setChecked(False)
+            self.window.save_token_button.setVisible(is_checked)
         
         @Slot()
         def show_hf_token_dialog(self, is_mandatory=False):
@@ -698,8 +613,7 @@ def run_app():
                 if dialog.token != current_token:
                     self.window.huggingface_token_entry.setText(dialog.token); self.config_manager.save_huggingface_token(dialog.token); self.config_manager.set_use_auth_token(bool(dialog.token))
                     QMessageBox.information(self.window, "Token Saved", translations.get_text("msg_token_saved", self.current_language))
-            elif is_mandatory:
-                self.window.identify_speakers_checkbutton.setChecked(False); logger.warning("Mandatory Hugging Face token setup was cancelled.")
+            # The 'elif is_mandatory' logic has been moved to the caller to prevent state conflicts
         
         def set_ui_for_processing(self, is_processing):
             self.window.Audio_file_frame.setEnabled(not is_processing); self.window.Processing_options_frame.setEnabled(not is_processing)
@@ -724,14 +638,27 @@ def run_app():
             if os.path.exists(key_icon_path): self.window.save_token_button.setIcon(QIcon(key_icon_path))
             self.window.correction_button.setEnabled(False)
             saved_options = self.config_manager.load_processing_options()
-            self.window.identify_speakers_checkbutton.setChecked(saved_options.get(constants.OPTION_DIARIZE, False)); self.window.auto_merge_checkbutton.setChecked(saved_options.get(constants.OPTION_AUTO_MERGE, False))
+            
+            # --- STARTUP TOKEN SYNC ---
+            # Set checkbox based on config, but VERIFY token
+            diar_enabled_in_config = saved_options.get(constants.OPTION_DIARIZE, False)
+            if diar_enabled_in_config:
+                if not self.config_manager.load_huggingface_token():
+                    # Config says enabled, but token is missing? Disable it.
+                    diar_enabled_in_config = False
+            
+            self.window.identify_speakers_checkbutton.setChecked(diar_enabled_in_config)
+            
+            self.window.auto_merge_checkbutton.setChecked(saved_options.get(constants.OPTION_AUTO_MERGE, False))
             self.window.timestamps_checkbutton_2.setChecked(saved_options.get(constants.OPTION_TIMESTAMPS, True)); self.window.end_times_checkbutton.setChecked(saved_options.get(constants.OPTION_END_TIMES, False))
             token = self.config_manager.load_huggingface_token()
             if token: self.window.huggingface_token_entry.setText(token)
-            is_diarize_checked = self.window.identify_speakers_checkbutton.isChecked(); diarize_check_state = Qt.CheckState.Checked.value if is_diarize_checked else Qt.CheckState.Unchecked.value; self.toggle_speaker_options(diarize_check_state)
+            
+            # Re-trigger UI state sync based on the now-verified checkboxes
+            self.toggle_speaker_options(Qt.CheckState.Checked.value if self.window.identify_speakers_checkbutton.isChecked() else Qt.CheckState.Unchecked.value)
+            
             is_ts_checked = self.window.timestamps_checkbutton_2.isChecked(); ts_check_state = Qt.CheckState.Checked.value if is_ts_checked else Qt.CheckState.Unchecked.value; self.toggle_timestamp_options(ts_check_state)
             font_sizes = ["8", "9", "10", "11", "12", "14", "16", "18", "24", "36"]; self.window.font_size_combo.addItems(font_sizes); self.window.font_size_combo.setCurrentText("12")
-            db = QFontDatabase(); font_families = db.families(); self.window.text_font_combo.addItems(font_families); default_font = "Monaco" if "Monaco" in font_families else "Courier New" if "Courier New" in font_families else "Monospace"; self.window.text_font_combo.setCurrentText(default_font)
             if self.window.correction_play_pause_btn: button = self.window.correction_play_pause_btn; font_metrics = QFontMetrics(button.font()); text_width = font_metrics.boundingRect("Pause ").width(); padding = 40; button.setFixedWidth(text_width + padding)
             logger.info("Initial settings loaded."); show_tips = self.config_manager.get_main_window_show_tips(); self.window.show_tips_checkbox.setChecked(show_tips); self._apply_tips_state(show_tips); self.correction_logic.set_tips_enabled(show_tips); logger.info(f"Loaded tips preference on startup: {show_tips}")
             
@@ -761,32 +688,72 @@ def run_app():
             if len(self.audio_file_paths) > 1:
                 destination_folder = QFileDialog.getExistingDirectory(self.window, "Select Destination Folder for Transcriptions")
                 if not destination_folder: self.window.status_label.setText(translations.get_text("msg_batch_cancel", self.current_language)); return
+            
+            ffmpeg_path = _get_bundled_ffmpeg_path()
+            if not ffmpeg_path:
+                QMessageBox.critical(self.window, "FFmpeg Missing", 
+                                     "FFmpeg could not be found.\n\n"
+                                     "Since you are running from source code, you must install FFmpeg manually:\n"
+                                     "1. Download ffmpeg.exe from gyan.dev\n"
+                                     "2. Create a 'bin' folder in the project root\n"
+                                     "3. Place ffmpeg.exe inside 'bin/'")
+                return
+            
+            logger.info(f"Main process identified ffmpeg: {ffmpeg_path}")
+            
             self.config_manager.save_processing_options(self.get_processing_options()); self.set_ui_for_processing(True); self.window.progress_bar.setValue(0); self.window.output_text_area.clear()
-            options = self.get_processing_options(); cache_dir = os.path.join(os.path.expanduser('~'), 'AutoVerse_Cache'); ffmpeg_path = _get_bundled_ffmpeg_path()
-            if ffmpeg_path: logger.info(f"Main process identified bundled ffmpeg: {ffmpeg_path}")
+            options = self.get_processing_options(); cache_dir = os.path.join(os.path.expanduser('~'), 'AutoVerse_Cache')
+            
             self.queue = multiprocessing.Queue(); self.process = multiprocessing.Process(target=processing_worker_function, args=(self.queue, self.audio_file_paths, options, cache_dir, destination_folder, ffmpeg_path), daemon=True); self.process.start(); self.timer.start(100)
 
         def check_queue(self):
             try:
                 msg_type, data = self.queue.get_nowait()
-                if msg_type == constants.MSG_TYPE_PROGRESS: self.window.progress_bar.setValue(data)
-                elif msg_type == constants.MSG_TYPE_STATUS: self.window.status_label.setText(data); self.window.progress_bar.setValue(0); self.current_step_start_time = time.time(); self.original_status_text = data
-                elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS: whisper_percentage = data; mapped_percentage = int((whisper_percentage * 0.6) + 30); self.window.progress_bar.setValue(mapped_percentage)
-                elif msg_type == constants.MSG_TYPE_BATCH_FILE_START: file_info = data; status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"; self.window.status_label.setText(status); self.window.progress_bar.setValue(0)
-                elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED: self.current_step_start_time = None; self.timer.stop(); 
-                if self.process: self.process.join(); self.process = None
-                self.handle_batch_results(data)
+                if msg_type == constants.MSG_TYPE_PROGRESS: 
+                    self.window.progress_bar.setValue(data)
+                elif msg_type == constants.MSG_TYPE_STATUS: 
+                    self.window.status_label.setText(data)
+                    self.window.progress_bar.setValue(0)
+                    self.current_step_start_time = time.time()
+                    self.original_status_text = data
+                elif msg_type == constants.MSG_TYPE_REALTIME_PROGRESS: 
+                    whisper_percentage = data
+                    mapped_percentage = int((whisper_percentage * 0.6) + 30)
+                    self.window.progress_bar.setValue(mapped_percentage)
+                elif msg_type == constants.MSG_TYPE_BATCH_FILE_START: 
+                    file_info = data
+                    status = f"Processing file {file_info[constants.KEY_BATCH_CURRENT_IDX]} of {file_info[constants.KEY_BATCH_TOTAL_FILES]}: {file_info[constants.KEY_BATCH_FILENAME]}"
+                    self.window.status_label.setText(status)
+                    self.window.progress_bar.setValue(0)
+                elif msg_type == constants.MSG_TYPE_BATCH_COMPLETED: 
+                    self.current_step_start_time = None
+                    self.timer.stop()
+                    if self.process: 
+                        self.process.join()
+                        self.process = None
+                    self.handle_batch_results(data)
             except Empty:
                 if self.is_processing and (not self.process or not self.process.is_alive()):
-                    self.timer.stop(); self.process = None; self.set_ui_for_processing(False)
-                    if "aborted" not in self.window.status_label.text(): QMessageBox.critical(self.window, "Error", "Processing stopped unexpectedly."); self.window.status_label.setText("Error: Processing stopped unexpectedly.")
-                    if self.tutorial_manager.paused_state: QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
+                    self.timer.stop()
+                    self.process = None
+                    self.set_ui_for_processing(False)
+                    if "aborted" not in self.window.status_label.text():
+                        # Don't show error if it finished cleanly but queue is empty (race condition check)
+                        pass 
+                    if self.tutorial_manager.paused_state:
+                        QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
         
         def _format_etr(self, seconds: float) -> str:
             if seconds < 60: return f"{int(seconds)}s"
             else: mins = int(seconds / 60); secs = int(seconds % 60); return f"{mins}m {secs:02d}s"
 
         def handle_batch_results(self, final_payload):
+            if not isinstance(final_payload, dict) or constants.KEY_BATCH_ALL_RESULTS not in final_payload:
+                logger.error(f"Invalid payload in handle_batch_results: {final_payload}")
+                self.window.status_label.setText("Error: Received invalid data from worker.")
+                self.set_ui_for_processing(False)
+                return
+
             results = final_payload[constants.KEY_BATCH_ALL_RESULTS]; summary = []; successful_count = 0; error_count = 0
             if len(results) == 1:
                 result = results[0]; self.window.progress_bar.setValue(100)

@@ -90,8 +90,7 @@ class CorrectionViewLogic(QObject):
         self._cleaned_up = False
 
     def set_tips_enabled(self, is_enabled):
-        # We need the current language. If available from main_app, use it.
-        lang = "Français" # Default fallback
+        lang = "Français"
         if self.main_app and hasattr(self.main_app, 'config_manager'):
             lang = self.main_app.config_manager.get_language()
             
@@ -104,8 +103,6 @@ class CorrectionViewLogic(QObject):
                     widget.setStatusTip("")
 
     def update_tips_language(self, lang):
-        """Called when language changes to refresh tips."""
-        # Only update if tips are currently enabled
         if self.main_app and self.main_app.window.show_tips_checkbox.isChecked():
              for widget, tip_key in self.tip_widgets.items():
                 if widget:
@@ -181,9 +178,11 @@ class CorrectionViewLogic(QObject):
             prepared_device_name = self.audio_player.get_prepared_device_name()
             logger.info(f"Play requested. Prepared for: '{prepared_device_name}', Current: '{current_device_name}'")
             if current_device_name and prepared_device_name and current_device_name != prepared_device_name:
-                QMessageBox.information(self.main_window, "Audio Device Changed",
-                                        "Your default audio device has changed.\\n\\nThe audio files will now be reloaded to match the new device. Please press play again.")
+                # Instead of showing a popup which interrupts flow, we just log and recover
+                logger.warning("Audio device changed. Triggering recovery.")
                 self._recover_audio_player()
+                # Try to play again after recovery
+                QTimer.singleShot(500, self.audio_player.play)
                 return
             self.audio_player.play()
         else:
@@ -198,7 +197,6 @@ class CorrectionViewLogic(QObject):
             if not txt or not audio: return
             
             self._stop_auto_save()
-            
             self.current_audio_path = audio; self.current_txt_path = txt
             
             try:
@@ -212,7 +210,6 @@ class CorrectionViewLogic(QObject):
                 self.update_audio_progress(0); self.set_controls_enabled(True); self.update_play_button_state(playing=False)
                 
                 self._start_auto_save()
-                
                 self._offer_tutorial_if_first_time()
 
             except Exception as e:
@@ -220,25 +217,18 @@ class CorrectionViewLogic(QObject):
                 self._stop_auto_save()
                 
     def _offer_tutorial_if_first_time(self):
-        """Offer to start the correction tutorial for first-time users"""
         if self.main_app and hasattr(self.main_app, 'tutorial_manager') and hasattr(self.main_app, 'config_manager'):
             if not self.main_app.config_manager.get_correction_tutorial_completed():
                 reply = QMessageBox.question(
-                    self.main_window,
-                    "Correction Tutorial",
-                    "Welcome to the Correction Window! Would you like to take a quick interactive tutorial to learn about the editing features?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
+                    self.main_window, "Correction Tutorial",
+                    "Welcome to the Correction Window! Would you like to take a quick interactive tutorial?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
                 )
-
                 if reply == QMessageBox.Yes:
-                    # Delay tutorial start to ensure UI is fully loaded
                     QTimer.singleShot(300, lambda: self.main_app.tutorial_manager.start_tutorial("correction_tutorial"))
                 else:
-                    # Mark as completed so we don't ask again
                     self.main_app.config_manager.set_correction_tutorial_completed(True)
 
-    # ... The rest of the file is unchanged ...
     @Slot()
     def on_delete_segment_clicked(self):
         before_segs = deepcopy(self.segment_manager.segments); before_map = deepcopy(self.segment_manager.speaker_map); confirmed_action = False
@@ -315,9 +305,9 @@ class CorrectionViewLogic(QObject):
                 spk_start_pos = cursor.position(); spk_str = f"{self.segment_manager.speaker_map.get(speaker_label, speaker_label)}: "
                 cursor.insertText(spk_str, self.normal_format); seg['component_positions']['speaker'] = (spk_start_pos, cursor.position())
             text_start_pos = cursor.position(); cursor.insertText(seg['text'], self.normal_format); seg['component_positions']['text'] = (text_start_pos, cursor.position())
-            # --- THIS IS THE FIX for the rendering bug ---
+            
             cursor.insertText('\n', self.normal_format)
-            # --- END OF FIX ---
+            
             seg['doc_positions'] = (seg['doc_positions'][0], cursor.position())
         self._clear_all_selections(update_buttons=False)
         if current_selection_id and self.segment_manager.get_segment_by_id(current_selection_id): self.select_segment(current_selection_id)
@@ -384,9 +374,7 @@ class CorrectionViewLogic(QObject):
         if not is_click_on_valid_segment: self._clear_all_selections(); self.update_edit_buttons_state(); return
         segment_id = self.segment_manager.segments[block_number]['id']
 
-        # --- THIS IS THE CORRECTED LINE ---
         is_shift_pressed = bool(modifiers & Qt.KeyboardModifier.ShiftModifier.value)
-        # --- END OF CORRECTION ---
 
         if is_shift_pressed:
             if self.selected_segment_id and self.selected_segment_id != segment_id:
@@ -436,7 +424,6 @@ class CorrectionViewLogic(QObject):
     def _apply_format(self, segment_id, text_format, clear_first=False):
         segment = self.segment_manager.get_segment_by_id(segment_id)
         if segment and 'doc_positions' in segment:
-            # Temporarily make the text area editable for formatting
             was_readonly = self.main_window.correction_text_area.isReadOnly()
             if was_readonly:
                 self.main_window.correction_text_area.setReadOnly(False)
@@ -448,7 +435,6 @@ class CorrectionViewLogic(QObject):
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor, 1)
             cursor.setCharFormat(text_format)
 
-            # Restore read-only state
             if was_readonly:
                 self.main_window.correction_text_area.setReadOnly(True)
 
@@ -583,9 +569,9 @@ class CorrectionViewLogic(QObject):
         try:
             save_data = self.segment_manager.format_segments_for_saving(True, True)
             with open(self.current_txt_path, 'w', encoding='utf-8') as f:
-                f.write('\\n'.join(save_data))
+                # --- FIX: Use '\n' instead of '\\n' to prevent corrupted file writes ---
+                f.write('\n'.join(save_data))
             logger.info(f"Transcription saved to {self.current_txt_path}")
-            # Show a brief status message instead of a popup
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage(f"Saved to {os.path.basename(self.current_txt_path)}", 3000)
         except IOError as e:
@@ -593,57 +579,48 @@ class CorrectionViewLogic(QObject):
             QMessageBox.critical(self.main_window, "Save Error", f"Could not save file: {e}")
 
     def _auto_save(self):
-        """Automatically save the current document if there are changes."""
         if not self.segment_manager.segments or not self.current_txt_path:
             return
 
         try:
             save_data = self.segment_manager.format_segments_for_saving(True, True)
             with open(self.current_txt_path, 'w', encoding='utf-8') as f:
-                f.write('\\n'.join(save_data))
+                # --- FIX: Use '\n' instead of '\\n' to prevent corrupted file writes ---
+                f.write('\n'.join(save_data))
             logger.debug(f"Auto-saved transcription to {self.current_txt_path}")
-            # Show a subtle status message for auto-save
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage("Auto-saved", 1500)
         except IOError as e:
             logger.warning(f"Auto-save failed: {e}")
-            # Don't show error popup for auto-save failures, just log it
 
     def _start_auto_save(self):
-        """Start the automatic save timer."""
         if self.current_txt_path and self.segment_manager.segments:
             self.auto_save_enabled = True
             self.auto_save_timer.start(self.auto_save_interval)
             minutes = self.auto_save_interval // 1000 // 60
             logger.info(f"Auto-save started (every {minutes} minutes)")
-            # Show status message to user
             if hasattr(self.main_window, 'statusBar'):
                 self.main_window.statusBar().showMessage(f"Auto-save enabled (every {minutes} min)", 5000)
 
     def _stop_auto_save(self):
-        """Stop the automatic save timer."""
         self.auto_save_enabled = False
         self.auto_save_timer.stop()
         logger.debug("Auto-save stopped")
 
     def set_auto_save_interval(self, minutes):
-        """Set the auto-save interval in minutes."""
-        self.auto_save_interval = minutes * 60 * 1000  # Convert to milliseconds
+        self.auto_save_interval = minutes * 60 * 1000
         if self.auto_save_enabled:
-            # Restart timer with new interval
             self._stop_auto_save()
             self._start_auto_save()
             logger.info(f"Auto-save interval changed to {minutes} minutes")
 
     def force_save(self):
-        """Manually trigger a save (useful for testing or after significant changes)."""
         if self.current_txt_path and self.segment_manager.segments:
             self._auto_save()
             return True
         return False
 
     def cleanup(self):
-        """Clean up resources when the correction window is closed."""
         if hasattr(self, '_cleaned_up') and self._cleaned_up:
             return
         self._cleaned_up = True

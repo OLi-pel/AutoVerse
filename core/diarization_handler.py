@@ -1,10 +1,8 @@
 # core/diarization_handler.py
 import logging
 import os
+import soundfile as sf
 from pyannote.audio import Pipeline
-# --- IMPORT THE HOOK ---
-from pyannote.audio.pipelines.utils.hook import ProgressHook
-import torch
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +52,37 @@ class DiarizationHandler:
             return None
         
         logger.info(f"DiarizationHandler: Starting diarization for {audio_path}")
+        
+        # --- DIAGNOSTIC: Check Audio Readability using SoundFile ---
         try:
-            # --- FIX: USE PROGRESS HOOK ---
-            # This generates the tqdm bar that app_worker.py captures
-            with ProgressHook() as hook:
-                diarization_result = self.pipeline(audio_path, hook=hook)
+            # We use soundfile directly to check if the file is readable
+            # This avoids the torchaudio version conflict
+            info = sf.info(audio_path)
+            logger.info(f"DiarizationHandler: Audio Check - Duration: {info.duration:.2f}s, SR: {info.samplerate}, Channels: {info.channels}")
+            
+            if info.duration < 0.5:
+                logger.warning("DiarizationHandler: Audio is too short (<0.5s), Pyannote might ignore it.")
                 
-            logger.info("DiarizationHandler: Diarization completed successfully.")
+        except Exception as e:
+            logger.error(f"DiarizationHandler: CRITICAL - SoundFile cannot load file: {e}")
+            raise
+        # ----------------------------------------
+
+        try:
+            # Run pipeline
+            diarization_result = self.pipeline(audio_path)
+            
+            # Check if we got anything
+            if diarization_result is None:
+                logger.warning("DiarizationHandler: Pipeline returned None.")
+            else:
+                # Count segments safely
+                try:
+                    num_segments = len(list(diarization_result.itertracks()))
+                    logger.info(f"DiarizationHandler: Success. Found {num_segments} speaker segments.")
+                except Exception:
+                    logger.info("DiarizationHandler: Success (could not count segments).")
+
             return diarization_result
         except Exception as e:
             logger.error(f"Error during diarization: {e}", exc_info=True)

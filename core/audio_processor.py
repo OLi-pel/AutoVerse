@@ -27,16 +27,12 @@ class AudioProcessor:
         self.logger = logger_instance if logger_instance else logger
         
         try:
-            # Check specifically for CUDA availability
             if torch.cuda.is_available():
                 self.device = torch.device("cuda")
                 self.logger.info(f"Device selected: CUDA (NVIDIA GPU). Name: {torch.cuda.get_device_name(0)}")
-            elif torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-                self.logger.info("Device selected: MPS (Apple Silicon)")
             else:
                 self.device = torch.device("cpu")
-                self.logger.info("Device selected: CPU (No GPU found)")
+                self.logger.info("Device selected: CPU")
 
             self.progress_callback = progress_callback
             self.output_include_timestamps = include_timestamps
@@ -54,8 +50,17 @@ class AudioProcessor:
             if enable_diarization:
                 if self.progress_callback: self.progress_callback("Loading/Downloading speaker detection model...", 0)
                 huggingface_config = config.get('huggingface', {})
+                token = huggingface_config.get('hf_token')
+                
+                # --- DEBUG PRINT ---
+                if not token:
+                    self.logger.warning("DIARIZATION WARNING: No Hugging Face token provided.")
+                else:
+                    self.logger.info(f"DIARIZATION: Token provided (Starts with: {token[:4]}...)")
+                # -------------------
+
                 self.diarization_handler = DiarizationHandler(
-                    hf_token=huggingface_config.get('hf_token'), use_auth_token_flag=True, 
+                    hf_token=token, use_auth_token_flag=True, 
                     device=self.device, cache_dir=cache_dir
                 )
 
@@ -75,6 +80,19 @@ class AudioProcessor:
             
             diarization_was_performed = diarization_result is not None
 
+            # --- DEBUGGING DIARIZATION RAW OUTPUT ---
+            if diarization_was_performed:
+                self.logger.info("--- DEBUG: RAW DIARIZATION OUTPUT ---")
+                count = 0
+                for turn, _, speaker in diarization_result.itertracks(yield_label=True):
+                    self.logger.info(f"  Speaker detected: {speaker} [{turn.start:.1f}s - {turn.end:.1f}s]")
+                    count += 1
+                if count == 0:
+                    self.logger.warning("--- DEBUG: Diarization ran but found 0 segments! ---")
+            else:
+                self.logger.info("--- DEBUG: Diarization was NOT performed (Result is None) ---")
+            # ----------------------------------------
+
             is_plain_text = not self.output_include_timestamps and not diarization_was_performed
             if is_plain_text:
                 if self.progress_callback: self.progress_callback("Processing complete!", 100)
@@ -85,6 +103,7 @@ class AudioProcessor:
                 )
 
             aligned_segments = self._align_outputs(diarization_result, transcription_result, diarization_was_performed)
+            
             if self.output_enable_auto_merge: 
                 aligned_segments = self._perform_auto_merge(aligned_segments)
             final_text = self._format_segment_dictionaries_to_strings(
@@ -109,19 +128,25 @@ class AudioProcessor:
         if not transcription_result_dict or not transcription_result_dict.get('segments'): return []
         transcription_segments = transcription_result_dict['segments']; aligned_segment_dicts = []
         diar_turns = []
+        
         if diarization_actually_performed and diarization_annotation:
             for turn, _, speaker_label in diarization_annotation.itertracks(yield_label=True):
                 diar_turns.append({'start': turn.start, 'end': turn.end, 'speaker': speaker_label})
+        
         for t_seg in transcription_segments:
             start_time, end_time, text_content = t_seg['start'], t_seg['end'], t_seg['text'].strip()
             assigned_speaker = constants.NO_SPEAKER_LABEL
             if diar_turns:
                 best_overlap = 0
                 for d_turn in diar_turns:
+                    # Calculate overlap
                     overlap = max(0, min(end_time, d_turn['end']) - max(start_time, d_turn['start']))
                     if overlap > best_overlap:
-                        best_overlap, assigned_speaker = overlap, d_turn['speaker']
+                        best_overlap = overlap
+                        assigned_speaker = d_turn['speaker']
+            
             aligned_segment_dicts.append({'start_time': start_time, 'end_time': end_time, 'speaker': assigned_speaker, 'text': text_content})
+        
         return aligned_segment_dicts
 
     def _perform_auto_merge(self, segment_dicts):
@@ -148,8 +173,12 @@ class AudioProcessor:
                 ts_start = self._format_time(seg_dict['start_time'])
                 if include_end_ts and seg_dict.get('end_time') is not None: parts.append(f"[{ts_start} - {self._format_time(seg_dict['end_time'])}]")
                 else: parts.append(f"[{ts_start}]")
-            if include_speakers and seg_dict.get('speaker', constants.NO_SPEAKER_LABEL) != constants.NO_SPEAKER_LABEL: 
-                parts.append(f"{seg_dict['speaker']}:")
+            
+            # --- DEBUG: Only print speaker if it is NOT the internal 'No Speaker' label
+            spk = seg_dict.get('speaker', constants.NO_SPEAKER_LABEL)
+            if include_speakers and spk != constants.NO_SPEAKER_LABEL: 
+                parts.append(f"{spk}:")
+            
             parts.append(seg_dict['text']); lines.append(" ".join(filter(None, parts)))
         return lines
 
