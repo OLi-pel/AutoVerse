@@ -3,39 +3,55 @@
 import sys
 import multiprocessing
 import os
-import collections # Added: Required for the AudioMetaData fix
+import collections
 import logging
 
+# Set this BEFORE importing torch to prevent conflicting OpenMP runtimes
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # ==============================================================================
-# FIX 3: WINDOWS DLL LOADING (Universal CPU Fix)
+# FIX 3: WINDOWS DLL LOADING (Universal CPU Fix - OneDir & OneFile Compatible)
 # ==============================================================================
 if sys.platform == 'win32':
-    import os
-    # 1. Force the torch/lib directory into the system PATH
-    # This allows dependencies (like c10.dll) to find their siblings
+    # 1. Determine the base path of the frozen application
     if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
+        # If running as a compiled app (PyInstaller)
+        if hasattr(sys, '_MEIPASS'):
+            # OneFile mode (everything unpacked to a temp folder)
+            base_dir = sys._MEIPASS
+        else:
+            # OneDir mode (folder-based) - use the directory of the executable
+            base_dir = os.path.dirname(sys.executable)
+            
         torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
     else:
-        # Dev mode fallback
+        # Development mode
         import site
         try:
             torch_lib_path = os.path.join(site.getsitepackages()[0], 'torch', 'lib')
         except (ImportError, AttributeError, IndexError):
-            # Fallback if site packages cannot be found
             torch_lib_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'torch', 'lib')
 
-    # 2. Add to PATH immediately
+    # 2. Add torch/lib to PATH and DLL search directory
     if os.path.exists(torch_lib_path):
+        # Prepend to PATH so it takes precedence
         os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
         try:
+            # Specifically for Python 3.8+ DLL security
             os.add_dll_directory(torch_lib_path)
-        except AttributeError:
-            pass # add_dll_directory doesn't exist on older Python/Windows
+        except (AttributeError, OSError):
+            pass 
+            
+    # 3. Also add the application root to DLL search path (for libiomp5md.dll / vcruntime)
+    if getattr(sys, 'frozen', False):
+        try:
+            os.add_dll_directory(base_dir)
+        except (AttributeError, OSError):
+            pass
+
 # ==============================================================================
 
+# ... (The rest of the file remains exactly the same as before)
 # ==============================================================================
 # FIX: GLOBAL TORCHAUDIO POLYFILL (Must be at top level for Multiprocessing)
 # ==============================================================================
@@ -102,9 +118,14 @@ def configure_ssl_for_bundle():
 
 def _get_bundled_ffmpeg_path():
     """Checks if the app is a PyInstaller bundle and returns the path to ffmpeg."""
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    if getattr(sys, 'frozen', False):
+        if hasattr(sys, '_MEIPASS'):
+            base_dir = sys._MEIPASS
+        else:
+            base_dir = os.path.dirname(sys.executable)
+            
         exe_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
-        return os.path.join(sys._MEIPASS, 'bin', exe_name)
+        return os.path.join(base_dir, 'bin', exe_name)
     return None
 
 def apply_modern_theme(app):
@@ -271,28 +292,29 @@ def run_app():
         multiprocessing.freeze_support()
 
     # ==============================================================================
-    # FIX: WINDOWS DLL LOADING (Universal CPU Version)
+    # FIX: WINDOWS DLL LOADING (Redundant check inside run_app just in case)
     # ==============================================================================
     if sys.platform == 'win32':
-        # We don't need 'import os' here because it's now global
-        
-        # 1. Force the torch/lib directory into the system PATH
         if getattr(sys, 'frozen', False):
-            base_dir = sys._MEIPASS
+            if hasattr(sys, '_MEIPASS'):
+                base_dir = sys._MEIPASS
+            else:
+                base_dir = os.path.dirname(sys.executable)
             torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
         else:
-            # Dev mode fallback
+            # Dev mode
             import site
             try:
                 torch_lib_path = os.path.join(site.getsitepackages()[0], 'torch', 'lib')
             except (ImportError, AttributeError, IndexError):
                 torch_lib_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'torch', 'lib')
 
-        # 2. Add to PATH immediately so c10.dll can find its dependencies
         if os.path.exists(torch_lib_path):
             os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
             try:
                 os.add_dll_directory(torch_lib_path)
+                if getattr(sys, 'frozen', False):
+                    os.add_dll_directory(base_dir) # Add root too
             except AttributeError:
                 pass 
     # ==============================================================================
@@ -309,7 +331,7 @@ def run_app():
     from utils import constants
     from utils import translations # Import translation module
     from utils.config_manager import ConfigManager
-    # Importing logic here triggers pyannote imports, so Fix 2 MUST be applied before this line.
+    # Importing logic here triggers pyannote imports, so Fix MUST be applied before this line.
     from ui.correction_view_logic import CorrectionViewLogic
     from ui.settings_logic import SettingsLogic
     from core.app_worker import processing_worker_function
@@ -322,7 +344,7 @@ def run_app():
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    # ... (HuggingFaceTokenDialog class remains unchanged) ...
+    # ... (Rest of the file is unchanged, keeping existing HuggingFaceTokenDialog, WelcomeDialog etc) ...
     class HuggingFaceTokenDialog(QDialog):
         def __init__(self, current_token, lang="Français", parent=None):
             super().__init__(parent)
@@ -403,7 +425,11 @@ def run_app():
             self.setModal(True)
             self.setFixedSize(500, 320)
             
-            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            if hasattr(sys, '_MEIPASS'):
+                 base_dir = sys._MEIPASS
+            else:
+                 base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
 
             layout = QVBoxLayout(self)
@@ -528,7 +554,11 @@ def run_app():
             loader = QUiLoader()
             loader.registerCustomWidget(SelectableTextEdit)
 
-            base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            if hasattr(sys, '_MEIPASS'):
+                 base_path = sys._MEIPASS
+            else:
+                 base_path = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+
             ui_file_path = os.path.join(base_path, "ui", "main_window.ui")
             
             self.window = loader.load(ui_file_path, None)
@@ -705,7 +735,12 @@ def run_app():
             menu_bar = self.window.menuBar()
             help_menu = menu_bar.addMenu("&Help")
             start_tutorial_action = help_menu.addAction("Start Tutorial")
-            start_tutorial_action.setIcon(QIcon(os.path.join(self.window.icon_dir, "interrogation.png")))
+            if hasattr(sys, '_MEIPASS'):
+                 base_dir = sys._MEIPASS
+            else:
+                 base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            
+            start_tutorial_action.setIcon(QIcon(os.path.join(base_dir, 'assets', 'icons', "interrogation.png")))
             start_tutorial_action.triggered.connect(
                 lambda: self.tutorial_manager.start_tutorial("main_tutorial")
             )
@@ -900,7 +935,11 @@ def run_app():
             self.window.monospace_font.setStyleHint(QFont.StyleHint.Monospace)
 
         def _setup_icons(self):
-            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            if hasattr(sys, '_MEIPASS'):
+                 base_dir = sys._MEIPASS
+            else:
+                 base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            
             icon_dir = os.path.join(base_dir, 'assets', 'icons')
             self.window.icon_dir = icon_dir
             icon_map = { self.window.browse_button: "folder-open.png", self.window.save_token_button: "disk.png", self.window.correction_button: "next.png", self.window.correction_browse_transcription_btn: "folder-open.png", self.window.correction_browse_audio_btn: "folder-open.png", self.window.correction_save_changes_btn: "disk.png", self.window.correction_load_files_btn: "sort-down.png", self.window.correction_rewind_btn: "rewind.png", self.window.correction_forward_btn: "forward.png", self.window.correction_assign_speakers_btn: "user-add.png", self.window.findChild(QPushButton, "Undo_button"): "undo.png", self.window.findChild(QPushButton, "Redo_Button"): "redo.png", self.window.findChild(QCheckBox, "show_tips_checkbox"): "interrogation.png", self.window.change_highlight_color_btn: "palette.png", self.window.edit_speaker_btn: "user-pen.png", self.window.correction_text_edit_btn: "pencil.png", self.window.correction_timestamp_edit_btn: "stopwatch.png", self.window.segment_btn: "multiple.png", self.window.save_timestamp_btn: "disk.png", self.window.merge_segments_btn: "merge.png", self.window.delete_segment_btn: "trash.png"}
@@ -1001,7 +1040,12 @@ def run_app():
         def load_initial_settings(self):
             self.window.huggingface_token_frame.hide()
             self.window.save_token_button.setText(translations.get_text("btn_manage_token", self.current_language))
-            base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            
+            if hasattr(sys, '_MEIPASS'):
+                 base_dir = sys._MEIPASS
+            else:
+                 base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+
             key_icon_path = os.path.join(base_dir, 'assets', 'icons', 'key.png')
             if os.path.exists(key_icon_path):
                  self.window.save_token_button.setIcon(QIcon(key_icon_path))

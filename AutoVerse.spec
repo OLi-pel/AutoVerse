@@ -3,7 +3,7 @@
 
 import sys
 import os
-import glob  # Added glob for robust file finding
+import glob
 from PyInstaller.utils.hooks import collect_data_files
 
 # --- Import torch to find its library path ---
@@ -34,8 +34,7 @@ datas = [
 torch_binaries = []
 if sys.platform == 'win32':
     if os.path.exists(torch_lib_path):
-        # Use glob to find all files, instead of relying on wildcards in the tuple
-        # Analysis binaries expects (source_path, dest_folder)
+        # Use glob to find all files in torch/lib
         dll_files = glob.glob(os.path.join(torch_lib_path, '*'))
         for f in dll_files:
             if os.path.isfile(f):
@@ -58,8 +57,6 @@ a = Analysis(
         'sklearn.utils._cython_blas',
         'sklearn.neighbors._quad_tree',
         'sklearn.tree._utils',
-        'torch.distributions',
-        'torch.random',
     ],
     hookspath=['.'],
     hooksconfig={},
@@ -68,31 +65,53 @@ a = Analysis(
     noarchive=False
 )
 
-# --- CRITICAL FIX: MANAGE libiomp5md.dll ---
-# 1. Remove ANY auto-collected libiomp5md.dll (e.g. from numpy) to prevent conflicts.
+# --- CRITICAL FIX 1: MANAGE libiomp5md.dll ---
+# 1. Remove ANY auto-collected libiomp5md.dll to prevent conflicts.
 # 2. Explicitly add the one from Torch to the ROOT of the application.
 
 new_binaries = []
 torch_iomp5_src = os.path.join(torch_lib_path, 'libiomp5md.dll')
 
-# a.binaries is a list of tuples: (INTERNAL_DEST_NAME, EXTERNAL_SOURCE_PATH, TYPECODE)
+# --- CRITICAL FIX 2: FORCE vcruntime140_1.dll ---
+# c10.dll specifically requires vcruntime140_1.dll, but PyInstaller often only bundles vcruntime140.dll
+# We try to find it in the system directory or the Python directory.
+vcruntime1_found = False
+# Common places for vcruntime140_1.dll
+sys_path = os.path.join(os.environ['SystemRoot'], 'System32', 'vcruntime140_1.dll')
+py_path = os.path.join(os.path.dirname(sys.executable), 'vcruntime140_1.dll')
+
+vcruntime1_src = None
+if os.path.exists(sys_path):
+    vcruntime1_src = sys_path
+elif os.path.exists(py_path):
+    vcruntime1_src = py_path
+
 for (dest_name, source_path, typecode) in a.binaries:
     filename = os.path.basename(dest_name).lower()
     
-    # Filter out any generic libiomp5md.dll
+    # Filter out generic libiomp5md.dll
     if filename == 'libiomp5md.dll':
-        print(f"Excluding auto-collected: {dest_name} from {source_path}")
         continue
+    
+    # Check if we already have vcruntime140_1
+    if filename == 'vcruntime140_1.dll':
+        vcruntime1_found = True
         
     new_binaries.append((dest_name, source_path, typecode))
 
-# Force add the Torch version to the root
+# Force add Torch libiomp5md.dll to root
 if os.path.exists(torch_iomp5_src):
     print(f"Force-adding {torch_iomp5_src} to application root.")
-    # CORRECT FORMAT: ('internal_filename', 'external_absolute_path', 'BINARY')
     new_binaries.append(('libiomp5md.dll', torch_iomp5_src, 'BINARY'))
 else:
     print("Warning: Could not find libiomp5md.dll in torch/lib")
+
+# Force add vcruntime140_1.dll if missing
+if not vcruntime1_found and vcruntime1_src:
+    print(f"Force-adding {vcruntime1_src} to application root (missing dependency for c10.dll).")
+    new_binaries.append(('vcruntime140_1.dll', vcruntime1_src, 'BINARY'))
+elif not vcruntime1_found:
+    print("Warning: Could not locate vcruntime140_1.dll. Application may fail to load c10.dll.")
 
 a.binaries = new_binaries
 # -------------------------------------------
