@@ -1,16 +1,15 @@
 # AutoVerse.spec
-
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files
 
-# --- FIX: Import torch to find its library path ---
+# --- Import torch to find its library path ---
 import torch
 torch_root = os.path.dirname(torch.__file__)
 torch_lib_path = os.path.join(torch_root, 'lib')
-# ------------------------------------------------
+# ---------------------------------------------
 
 # Determine the ffmpeg binary path based on the OS.
 if sys.platform == 'win32':
@@ -32,19 +31,15 @@ datas = [
 
 torch_binaries = []
 if sys.platform == 'win32':
-    # Explicitly find the site-packages/torch/lib directory
-    # We use a dummy import to find the path reliably on the build machine
-    import torch
-    torch_root = os.path.dirname(torch.__file__)
-    torch_lib = os.path.join(torch_root, 'lib')
-    
-    if os.path.exists(torch_lib):
-        torch_binaries.append((os.path.join(torch_lib, '*'), os.path.join('torch', 'lib')))
+    if os.path.exists(torch_lib_path):
+        # Collect everything in torch/lib to dist/AutoVerse/torch/lib
+        # This includes c10.dll, torch_cpu.dll, etc.
+        torch_binaries.append((os.path.join(torch_lib_path, '*'), os.path.join('torch', 'lib')))
 
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
-    binaries=[(ffmpeg_binary_path, 'bin')] + torch_binaries, # Add torch binaries here
+    binaries=[(ffmpeg_binary_path, 'bin')] + torch_binaries,
     datas=datas,
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
@@ -65,20 +60,31 @@ a = Analysis(
     noarchive=False
 )
 
+# --- CRITICAL FIX: MANAGE libiomp5md.dll ---
+# 1. Remove ANY auto-collected libiomp5md.dll (e.g. from numpy) to prevent conflicts.
+# 2. Explicitly add the one from Torch to the ROOT of the application.
+#    Windows searches the application directory first. This ensures c10.dll finds
+#    the compatible OpenMP library immediately.
+
 new_binaries = []
+torch_iomp5_src = os.path.join(torch_lib_path, 'libiomp5md.dll')
+
 for (src, dest, typecode) in a.binaries:
-    # Do NOT exclude libiomp5md.dll blindly. 
-    # Instead, we ensure we don't have duplicates, but we keep the one in torch/lib.
-    name = os.path.basename(src).lower()
-    
-    # If we find a duplicate libiomp5md.dll in the root, we can skip it ONLY if
-    # we know we have one inside torch/lib. 
-    # For safety in this specific "WinError 1114" case, it is safer to allow it 
-    # and rely on KMP_DUPLICATE_LIB_OK=TRUE in the python script.
-    
+    filename = os.path.basename(src).lower()
+    # Filter out any generic libiomp5md.dll
+    if filename == 'libiomp5md.dll':
+        continue
     new_binaries.append((src, dest, typecode))
 
+# Force add the Torch version to the root ('.')
+if os.path.exists(torch_iomp5_src):
+    print(f"Force-adding {torch_iomp5_src} to application root.")
+    new_binaries.append((torch_iomp5_src, '.', 'BINARY'))
+else:
+    print("Warning: Could not find libiomp5md.dll in torch/lib")
+
 a.binaries = new_binaries
+# -------------------------------------------
 
 pyz = PYZ(a.pure)
 
