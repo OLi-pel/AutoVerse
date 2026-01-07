@@ -60,6 +60,16 @@ a = Analysis(
     excludes=[],
     noarchive=False
 )
+
+new_binaries = []
+for (src, dest, typecode) in a.binaries:
+    # If the file is libiomp5md.dll and it's going to the root '.', skip it
+    if 'libiomp5md.dll' in src.lower() and (dest == '.' or dest == ''):
+        print(f"Excluding duplicate binary: {src}")
+        continue
+    new_binaries.append((src, dest, typecode))
+a.binaries = new_binaries
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

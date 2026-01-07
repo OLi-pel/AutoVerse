@@ -7,6 +7,34 @@ import collections # Added: Required for the AudioMetaData fix
 import logging
 
 # ==============================================================================
+# FIX 3: WINDOWS DLL LOADING (Universal CPU Fix)
+# ==============================================================================
+if sys.platform == 'win32':
+    import os
+    # 1. Force the torch/lib directory into the system PATH
+    # This allows dependencies (like c10.dll) to find their siblings
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS
+        torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
+    else:
+        # Dev mode fallback
+        import site
+        try:
+            torch_lib_path = os.path.join(site.getsitepackages()[0], 'torch', 'lib')
+        except (ImportError, AttributeError, IndexError):
+            # Fallback if site packages cannot be found
+            torch_lib_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'torch', 'lib')
+
+    # 2. Add to PATH immediately
+    if os.path.exists(torch_lib_path):
+        os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
+        try:
+            os.add_dll_directory(torch_lib_path)
+        except AttributeError:
+            pass # add_dll_directory doesn't exist on older Python/Windows
+# ==============================================================================
+
+# ==============================================================================
 # FIX: GLOBAL TORCHAUDIO POLYFILL (Must be at top level for Multiprocessing)
 # ==============================================================================
 try:
@@ -45,35 +73,6 @@ except Exception as e:
 # FIX 1: Enable PyTorch MPS Fallback (Prevents macOS crash on specific ops)
 # ==============================================================================
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-
-# ==============================================================================
-# FIX 3: WINDOWS DLL LOADING (Universal CPU Fix)
-# ==============================================================================
-if sys.platform == 'win32':
-    import os
-    # 1. Force the torch/lib directory into the system PATH
-    # This allows dependencies (like c10.dll) to find their siblings
-    if getattr(sys, 'frozen', False):
-        base_dir = sys._MEIPASS
-        torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
-    else:
-        # Dev mode fallback
-        import site
-        try:
-            torch_lib_path = os.path.join(site.getsitepackages()[0], 'torch', 'lib')
-        except (ImportError, AttributeError, IndexError):
-            # Fallback if site packages cannot be found
-            torch_lib_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'torch', 'lib')
-
-    # 2. Add to PATH immediately
-    if os.path.exists(torch_lib_path):
-        os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
-        try:
-            os.add_dll_directory(torch_lib_path)
-        except AttributeError:
-            pass # add_dll_directory doesn't exist on older Python/Windows
-# ==============================================================================
-
 
 import ssl
 import certifi
