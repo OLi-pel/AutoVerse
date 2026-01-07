@@ -67,15 +67,19 @@ class TranscriptionHandler:
         
     def transcribe(self, audio_path: str):
         """
-        Transcribes the audio file. 
+        Transcribes the audio file.
         CRITICAL: verbose=False forces the progress bar to show (which we capture).
         verbose=None or True might disable it or print text instead.
         """
         logger.info(f"TranscriptionHandler: Starting transcription for {audio_path}")
         try:
-            # FIX: verbose=False enables the tqdm progress bar
-            result = self.model.transcribe(audio_path, verbose=False)
-            logger.info("TranscriptionHandler: Transcription completed successfully.")
+            # --- FIX: Disable FP16 on macOS/MPS to prevent NaN errors ---
+            use_fp16 = self.device.type != "mps" 
+            
+            # verbose=False enables the tqdm progress bar
+            result = self.model.transcribe(audio_path, verbose=False, fp16=use_fp16)
+            
+            logger.info(f"TranscriptionHandler: Transcription completed successfully (FP16={use_fp16}).")
             return result
         except Exception as e:
             logger.error(f"Error during transcription: {e}", exc_info=True)
