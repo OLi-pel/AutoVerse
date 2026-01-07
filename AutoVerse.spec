@@ -1,8 +1,13 @@
+================================================================================
+// FILE: AutoVerse.spec
+================================================================================
+
 # AutoVerse.spec
 # -*- mode: python ; coding: utf-8 -*-
 
 import sys
 import os
+import glob  # Added glob for robust file finding
 from PyInstaller.utils.hooks import collect_data_files
 
 # --- Import torch to find its library path ---
@@ -29,12 +34,17 @@ datas = [
     *collect_data_files('transformers')
 ]
 
+# --- Collect Torch Binaries Safely ---
 torch_binaries = []
 if sys.platform == 'win32':
     if os.path.exists(torch_lib_path):
-        # Collect everything in torch/lib to dist/AutoVerse/torch/lib
-        # This includes c10.dll, torch_cpu.dll, etc.
-        torch_binaries.append((os.path.join(torch_lib_path, '*'), os.path.join('torch', 'lib')))
+        # Use glob to find all files, instead of relying on wildcards in the tuple
+        # Analysis binaries expects (source_path, dest_folder)
+        dll_files = glob.glob(os.path.join(torch_lib_path, '*'))
+        for f in dll_files:
+            if os.path.isfile(f):
+                # Place them in dist/AutoVerse/torch/lib
+                torch_binaries.append((f, os.path.join('torch', 'lib')))
 
 a = Analysis(
     ['main_pyside.py'],
@@ -65,23 +75,26 @@ a = Analysis(
 # --- CRITICAL FIX: MANAGE libiomp5md.dll ---
 # 1. Remove ANY auto-collected libiomp5md.dll (e.g. from numpy) to prevent conflicts.
 # 2. Explicitly add the one from Torch to the ROOT of the application.
-#    Windows searches the application directory first. This ensures c10.dll finds
-#    the compatible OpenMP library immediately.
 
 new_binaries = []
 torch_iomp5_src = os.path.join(torch_lib_path, 'libiomp5md.dll')
 
-for (src, dest, typecode) in a.binaries:
-    filename = os.path.basename(src).lower()
+# a.binaries is a list of tuples: (INTERNAL_DEST_NAME, EXTERNAL_SOURCE_PATH, TYPECODE)
+for (dest_name, source_path, typecode) in a.binaries:
+    filename = os.path.basename(dest_name).lower()
+    
     # Filter out any generic libiomp5md.dll
     if filename == 'libiomp5md.dll':
+        print(f"Excluding auto-collected: {dest_name} from {source_path}")
         continue
-    new_binaries.append((src, dest, typecode))
+        
+    new_binaries.append((dest_name, source_path, typecode))
 
-# Force add the Torch version to the root ('.')
+# Force add the Torch version to the root
 if os.path.exists(torch_iomp5_src):
     print(f"Force-adding {torch_iomp5_src} to application root.")
-    new_binaries.append((torch_iomp5_src, '.', 'BINARY'))
+    # CORRECT FORMAT: ('internal_filename', 'external_absolute_path', 'BINARY')
+    new_binaries.append(('libiomp5md.dll', torch_iomp5_src, 'BINARY'))
 else:
     print("Warning: Could not find libiomp5md.dll in torch/lib")
 
