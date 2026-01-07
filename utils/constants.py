@@ -4,7 +4,7 @@ import sys
 import logging
 
 # --- Application Version ---
-APP_VERSION = "1.0.8" 
+APP_VERSION = "1.1.0" 
 
 # --- User-specific Application Data Directory ---
 APP_NAME = "AutoVerse"
