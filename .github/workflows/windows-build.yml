@@ -10,33 +10,61 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
+          # We disable the default 'pip' cache here because we will rely on uv's speed
+          # and specific caching logic which is often faster and less error-prone for huge deps.
+
+      - name: Install uv
+        run: pip install uv
+
       - name: Create Placeholder Icon
         run: |
           New-Item -ItemType Directory -Force -Path "assets"
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\\logo.ico"
+          # Only download if not exists to save a tiny bit of time/bandwidth
+          if (-not (Test-Path "assets\logo.ico")) {
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\logo.ico"
+          }
         shell: powershell
+
+      # --- OPTIMIZATION 1: Cache FFmpeg ---
+      # This prevents downloading and unzipping the huge FFmpeg archive every time.
+      - name: Cache FFmpeg
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: bin/ffmpeg.exe
+          key: ${{ runner.os }}-ffmpeg-release-full
+
       - name: Download and prepare FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
           New-Item -ItemType Directory -Force -Path "bin"
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z" -OutFile "ffmpeg.7z"
           7z x ffmpeg.7z
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
+
+      # --- OPTIMIZATION 2: Install dependencies with uv ---
+      # 1. Install CPU Torch first using uv (much faster than pip).
+      # 2. Filter requirements.txt to remove torch references so uv doesn't check PyPI (which has the huge CUDA version).
+      # 3. Install the rest of the requirements.
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          # --- CHANGE: REMOVE the --index-url flag to get the full CUDA version ---
-          # OLD: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # NEW: Just install normally (gets CUDA 12.x or 11.x by default on Windows)
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # 1. Install PyTorch CPU version explicitly (uv is extremely fast)
+          uv pip install --system torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+          # 2. Create a clean requirements file removing torch packages we just installed
+          # This prevents the installer from hitting PyPI and downloading the massive CUDA versions
+          Get-Content requirements.txt | Where-Object { $_ -notmatch '^torch' } | Set-Content requirements_filtered.txt
           
-          # Install the rest
-          pip install -r requirements.txt
+          # 3. Install remaining dependencies
+          uv pip install --system -r requirements_filtered.txt
+        shell: powershell
+
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec
 
@@ -56,13 +84,9 @@ jobs:
           7z a ../AutoVerse-Windows-App.zip *
         shell: powershell
 
-      # --- THIS IS THE FIX ---
-      # Inno Setup creates its output in 'Output/', not 'dist/Output/'.
-      # This moves the generated installer into the 'dist' folder with other artifacts.
       - name: Organize Artifacts
         run: Move-Item -Path Output/AutoVerse-Windows-Setup.exe -Destination dist/
         shell: powershell
-      # --- END OF FIX ---
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
