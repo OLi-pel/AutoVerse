@@ -53,6 +53,10 @@ a = Analysis(
         'pyannote.audio.models.embedding', 
         'pyannote.audio.models.segmentation',
         'speechbrain.lobes.models.ECAPA_TDNN',
+        'sklearn.neighbors._typedefs',
+        'sklearn.utils._cython_blas',
+        'sklearn.neighbors._quad_tree',
+        'sklearn.tree._utils',
     ],
     hookspath=['.'],
     hooksconfig={},
@@ -63,11 +67,17 @@ a = Analysis(
 
 new_binaries = []
 for (src, dest, typecode) in a.binaries:
-    # If the file is libiomp5md.dll and it's going to the root '.', skip it
-    if 'libiomp5md.dll' in src.lower() and (dest == '.' or dest == ''):
-        print(f"Excluding duplicate binary: {src}")
-        continue
+    # Do NOT exclude libiomp5md.dll blindly. 
+    # Instead, we ensure we don't have duplicates, but we keep the one in torch/lib.
+    name = os.path.basename(src).lower()
+    
+    # If we find a duplicate libiomp5md.dll in the root, we can skip it ONLY if
+    # we know we have one inside torch/lib. 
+    # For safety in this specific "WinError 1114" case, it is safer to allow it 
+    # and rely on KMP_DUPLICATE_LIB_OK=TRUE in the python script.
+    
     new_binaries.append((src, dest, typecode))
+
 a.binaries = new_binaries
 
 pyz = PYZ(a.pure)

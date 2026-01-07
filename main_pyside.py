@@ -6,6 +6,8 @@ import os
 import collections # Added: Required for the AudioMetaData fix
 import logging
 
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 # ==============================================================================
 # FIX 3: WINDOWS DLL LOADING (Universal CPU Fix)
 # ==============================================================================
