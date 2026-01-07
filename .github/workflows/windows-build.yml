@@ -55,7 +55,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           # 1. Install PyTorch CPU version explicitly (uv is extremely fast)
-          uv pip install --system torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+          uv pip install --system torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
           # 2. Create a clean requirements file removing torch packages we just installed
           # This prevents the installer from hitting PyPI and downloading the massive CUDA versions

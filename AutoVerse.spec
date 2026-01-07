@@ -3,7 +3,7 @@
 
 import sys
 import os
-import glob
+import shutil
 from PyInstaller.utils.hooks import collect_data_files
 
 # --- 1. CONFIGURATION ---
@@ -41,61 +41,49 @@ if os.path.exists(ffmpeg_local_path):
 else:
     print(f"WARNING: FFmpeg not found at {ffmpeg_local_path}. App may crash if not in system PATH.")
 
-# --- WINDOWS SPECIFIC: Handle DLL Hell (WinError 1114) ---
+# --- WINDOWS SPECIFIC: AGGRESSIVE DLL BUNDLING ---
 if sys.platform == 'win32':
     import torch
     torch_root = os.path.dirname(torch.__file__)
     torch_lib_path = os.path.join(torch_root, 'lib')
     
-    # 1. Find and Bundle Critical PyTorch Dependencies (OpenMP)
-    iomp5_src = os.path.join(torch_lib_path, 'libiomp5md.dll')
-    if not os.path.exists(iomp5_src):
-        # Fallback search
-        for root, dirs, files in os.walk(torch_root):
-            if 'libiomp5md.dll' in files:
-                iomp5_src = os.path.join(root, 'libiomp5md.dll')
-                break
-    
-    if os.path.exists(iomp5_src):
-        print(f"Force-bundling libiomp5md.dll from: {iomp5_src}")
-        # Place it in root (.) AND inside torch/lib to be safe
-        binaries.append((iomp5_src, '.'))
-        binaries.append((iomp5_src, 'torch/lib'))
-    
-    # 2. Collect other Torch DLLs
-    if os.path.exists(torch_lib_path):
-        dlls = glob.glob(os.path.join(torch_lib_path, '*.dll'))
-        for dll in dlls:
-            if 'libiomp5md.dll' not in dll: 
-                binaries.append((dll, 'torch/lib'))
-
-    # 3. FORCE BUNDLE C++ RUNTIME (VCRUNTIME140_1.dll)
-    # This fixes the c10.dll initialization error on fresh installs
-    import ctypes.util
-    
-    critical_system_dlls = [
-        "vcruntime140.dll",
+    # List of DLLs that MUST be in the root folder for c10.dll to load
+    critical_dlls = [
+        "libiomp5md.dll", 
+        "vcruntime140.dll", 
         "vcruntime140_1.dll", 
-        "msvcp140.dll",
+        "msvcp140.dll", 
         "msvcp140_1.dll"
     ]
-    
-    for dll_name in critical_system_dlls:
-        # Try to find it in the system path of the BUILD machine
-        dll_path = ctypes.util.find_library(dll_name)
-        if not dll_path:
-            # Fallback check in System32 directly if find_library fails
-            sys32 = os.path.join(os.environ['SystemRoot'], 'System32')
-            candidate = os.path.join(sys32, dll_name)
-            if os.path.exists(candidate):
-                dll_path = candidate
 
-        if dll_path and os.path.exists(dll_path):
-            print(f"Force-bundling System DLL: {dll_name} from {dll_path}")
-            # Put them in the root of the app so Python finds them immediately
-            binaries.append((dll_path, '.'))
-        else:
-            print(f"WARNING: Could not find system DLL {dll_name} on build machine.")
+    # 1. Search in Torch Library first (best for libiomp5md.dll)
+    for dll in critical_dlls:
+        found = False
+        potential_path = os.path.join(torch_lib_path, dll)
+        if os.path.exists(potential_path):
+            print(f"Found {dll} in Torch: {potential_path}")
+            binaries.append((potential_path, '.')) # Copy to ROOT
+            found = True
+        
+        # 2. If not in Torch, search System32 (best for vcruntime/msvcp)
+        if not found:
+            sys32 = os.path.join(os.environ['SystemRoot'], 'System32')
+            potential_path = os.path.join(sys32, dll)
+            if os.path.exists(potential_path):
+                print(f"Found {dll} in System32: {potential_path}")
+                binaries.append((potential_path, '.')) # Copy to ROOT
+                found = True
+        
+        if not found:
+            print(f"WARNING: Could not find critical DLL: {dll}")
+
+    # 3. Collect other Torch DLLs normally
+    if os.path.exists(torch_lib_path):
+        import glob
+        dlls = glob.glob(os.path.join(torch_lib_path, '*.dll'))
+        for dll in dlls:
+            # We already handled libiomp5md explicitly above, but duplicating to torch/lib is safe
+            binaries.append((dll, 'torch/lib'))
 
 # ---------------------------------------------------------
 
@@ -141,7 +129,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False, # Set to True for debugging console, False for release
+    console=False, 
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
