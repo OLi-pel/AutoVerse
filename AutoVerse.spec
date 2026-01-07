@@ -47,7 +47,7 @@ if sys.platform == 'win32':
     torch_root = os.path.dirname(torch.__file__)
     torch_lib_path = os.path.join(torch_root, 'lib')
     
-    # 1. Find libiomp5md.dll (Critical for PyTorch)
+    # 1. Find and Bundle Critical PyTorch Dependencies (OpenMP)
     iomp5_src = os.path.join(torch_lib_path, 'libiomp5md.dll')
     if not os.path.exists(iomp5_src):
         # Fallback search
@@ -66,8 +66,36 @@ if sys.platform == 'win32':
     if os.path.exists(torch_lib_path):
         dlls = glob.glob(os.path.join(torch_lib_path, '*.dll'))
         for dll in dlls:
-            if 'libiomp5md.dll' not in dll: # Avoid duplicate
+            if 'libiomp5md.dll' not in dll: 
                 binaries.append((dll, 'torch/lib'))
+
+    # 3. FORCE BUNDLE C++ RUNTIME (VCRUNTIME140_1.dll)
+    # This fixes the c10.dll initialization error on fresh installs
+    import ctypes.util
+    
+    critical_system_dlls = [
+        "vcruntime140.dll",
+        "vcruntime140_1.dll", 
+        "msvcp140.dll",
+        "msvcp140_1.dll"
+    ]
+    
+    for dll_name in critical_system_dlls:
+        # Try to find it in the system path of the BUILD machine
+        dll_path = ctypes.util.find_library(dll_name)
+        if not dll_path:
+            # Fallback check in System32 directly if find_library fails
+            sys32 = os.path.join(os.environ['SystemRoot'], 'System32')
+            candidate = os.path.join(sys32, dll_name)
+            if os.path.exists(candidate):
+                dll_path = candidate
+
+        if dll_path and os.path.exists(dll_path):
+            print(f"Force-bundling System DLL: {dll_name} from {dll_path}")
+            # Put them in the root of the app so Python finds them immediately
+            binaries.append((dll_path, '.'))
+        else:
+            print(f"WARNING: Could not find system DLL {dll_name} on build machine.")
 
 # ---------------------------------------------------------
 
@@ -113,7 +141,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False, # Set to True if debugging the frozen app, False for release
+    console=False, # Set to True for debugging console, False for release
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
