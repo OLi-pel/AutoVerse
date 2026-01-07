@@ -1,5 +1,3 @@
-# main_pyside.py
-
 import sys
 import multiprocessing
 import os
@@ -9,19 +7,16 @@ import ctypes
 import site
 import shutil
 
-# ==============================================================================
-# NUCLEAR FIX: MANUAL DLL INJECTION
-# ==============================================================================
 if sys.platform == 'win32':
     # Allow duplicates to prevent MKL/OMP errors
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     
     # --- GRAPHICS FIX FOR OLD HARDWARE ---
-    # Default (Direct3D) is safer for Optiplex 9010/older Intel GPUs.
     os.environ["QT_API"] = "pyside6"
     os.environ["QSG_RHI_BACKEND"] = "opengl"
     
+    # 1. Determine Base Directory
     frozen_app = getattr(sys, 'frozen', False)
     if frozen_app:
         if hasattr(sys, '_MEIPASS'):
@@ -30,53 +25,40 @@ if sys.platform == 'win32':
             base_dir = os.path.dirname(sys.executable)
             internal_dir = os.path.join(base_dir, '_internal')
             if os.path.exists(internal_dir):
-                base_dir = internal_dir
+                base_dir = internal_dir # PyInstaller --onedir mode usually here
+            else:
+                base_dir = os.path.dirname(sys.executable) # Fallback to root
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # Search paths for DLLs
-    search_paths = [
-        base_dir,
-        os.path.join(base_dir, 'torch', 'lib'),
-        os.path.join(os.environ['SystemRoot'], 'System32'),
-    ]
+    # 2. Add Base Directory to PATH (Crucial for c10.dll to find dependencies)
+    os.environ['PATH'] = base_dir + os.pathsep + os.environ['PATH']
+
+    # 3. Explicitly Pre-load Critical DLLs (OpenMP)
+    # The hook placed this in the root (base_dir).
+    # We DO NOT preload CUDA DLLs; we let Torch load them lazily if hardware exists.
+    critical_dlls = ["libiomp5md.dll"]
+
+    print(f"--- [DEBUG] Bootstrapping DLLs from: {base_dir} ---")
     
-    if not frozen_app:
-        site_packages = site.getsitepackages()
-        for sp in site_packages:
-            torch_lib = os.path.join(sp, 'torch', 'lib')
-            if os.path.exists(torch_lib):
-                search_paths.append(torch_lib)
-
-    critical_dlls = ["vcruntime140_1.dll", "msvcp140_1.dll", "libiomp5md.dll"]
-
-    print(f"--- [DEBUG] Pre-loading Critical DLLs ---")
-    for path in search_paths:
-        if os.path.exists(path):
-            try:
-                os.add_dll_directory(path)
-            except (AttributeError, OSError):
-                pass
-            os.environ['PATH'] = path + os.pathsep + os.environ['PATH']
-
     for dll_name in critical_dlls:
-        loaded = False
-        for path in search_paths:
-            dll_path = os.path.join(path, dll_name)
-            if os.path.exists(dll_path):
+        dll_path = os.path.join(base_dir, dll_name)
+        if os.path.exists(dll_path):
+            try:
+                ctypes.CDLL(dll_path)
+                print(f"--- [DEBUG] Successfully pre-loaded: {dll_path}")
+            except Exception as e:
+                print(f"--- [DEBUG] Warning: Failed to pre-load {dll_name}: {e}")
+        else:
+            # Fallback for dev mode (non-frozen)
+            fallback = os.path.join(base_dir, 'torch', 'lib', dll_name)
+            if os.path.exists(fallback):
                 try:
-                    ctypes.CDLL(dll_path)
-                    print(f"--- [DEBUG] Successfully force-loaded: {dll_path}")
-                    loaded = True
-                    break
-                except OSError:
+                    ctypes.CDLL(fallback)
+                    print(f"--- [DEBUG] Pre-loaded from torch/lib: {dll_name}")
+                except Exception:
                     pass
-        if not loaded:
-            print(f"--- [DEBUG] Warning: Could not find/load {dll_name}")
 
-# ==============================================================================
-# IMPORT TORCH EARLY
-# ==============================================================================
 try:
     import torch
     import torchaudio
@@ -86,7 +68,6 @@ try:
         setattr(torchaudio, 'get_audio_backend', lambda: 'soundfile')
     if not hasattr(torchaudio, 'AudioMetaData'):
         try:
-            # Pylance warning here is expected and safe to ignore
             from torchaudio.backend.common import AudioMetaData # type: ignore
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
         except ImportError:
@@ -94,8 +75,6 @@ try:
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
 except Exception as e:
     print(f"--- [DEBUG] Warning during early torch import: {e}")
-
-# ==============================================================================
 
 import ssl
 import certifi

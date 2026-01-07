@@ -15,8 +15,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          # We disable the default 'pip' cache here because we will rely on uv's speed
-          # and specific caching logic which is often faster and less error-prone for huge deps.
 
       - name: Install uv
         run: pip install uv
@@ -24,14 +22,11 @@ jobs:
       - name: Create Placeholder Icon
         run: |
           New-Item -ItemType Directory -Force -Path "assets"
-          # Only download if not exists to save a tiny bit of time/bandwidth
           if (-not (Test-Path "assets\logo.ico")) {
             Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pyinstaller/pyinstaller/v6.9.0/PyInstaller/bootloader/images/icon-windowed.ico" -OutFile "assets\logo.ico"
           }
         shell: powershell
 
-      # --- OPTIMIZATION 1: Cache FFmpeg ---
-      # This prevents downloading and unzipping the huge FFmpeg archive every time.
       - name: Cache FFmpeg
         id: cache-ffmpeg
         uses: actions/cache@v4
@@ -48,17 +43,13 @@ jobs:
           Copy-Item "ffmpeg-*-full_build/bin/ffmpeg.exe" "bin/ffmpeg.exe"
         shell: powershell
 
-      # --- OPTIMIZATION 2: Install dependencies with uv ---
-      # 1. Install CPU Torch first using uv (much faster than pip).
-      # 2. Filter requirements.txt to remove torch references so uv doesn't check PyPI (which has the huge CUDA version).
-      # 3. Install the rest of the requirements.
       - name: Install Python dependencies
         run: |
-          # 1. Install PyTorch CPU version explicitly (uv is extremely fast)
+          # 1. Install Full PyTorch (Includes CUDA). 
+          # Removing the --index-url triggers the default download (Hybrid CPU/GPU)
           uv pip install --system torch torchvision torchaudio
-
-          # 2. Create a clean requirements file removing torch packages we just installed
-          # This prevents the installer from hitting PyPI and downloading the massive CUDA versions
+          
+          # 2. Filter requirements to remove torch (since we just installed it)
           Get-Content requirements.txt | Where-Object { $_ -notmatch '^torch' } | Set-Content requirements_filtered.txt
           
           # 3. Install remaining dependencies
@@ -66,9 +57,7 @@ jobs:
         shell: powershell
 
       - name: Build with PyInstaller
-        env:
-          CUDA_VISIBLE_DEVICES: -1 
-          
+        # We purposely do NOT set CUDA_VISIBLE_DEVICES here during build
         run: pyinstaller AutoVerse.spec
 
       - name: Install Inno Setup
