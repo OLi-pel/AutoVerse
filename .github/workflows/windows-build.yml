@@ -30,9 +30,12 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          # Force install the NVIDIA CUDA version of PyTorch
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # Install the rest (pip will see torch is already installed and skip it)
+          # --- CHANGE: REMOVE the --index-url flag to get the full CUDA version ---
+          # OLD: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # NEW: Just install normally (gets CUDA 12.x or 11.x by default on Windows)
+          pip install torch torchvision torchaudio
+          
+          # Install the rest
           pip install -r requirements.txt
       - name: Build with PyInstaller
         run: pyinstaller AutoVerse.spec

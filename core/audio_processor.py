@@ -27,17 +27,16 @@ class AudioProcessor:
         self.logger = logger_instance if logger_instance else logger
         
         try:
-            # Check for NVIDIA CUDA (Windows/Linux)
+            # Check specifically for CUDA availability
             if torch.cuda.is_available():
                 self.device = torch.device("cuda")
-                self.logger.info("Device selected: CUDA (NVIDIA GPU)")
-            # Check for Apple Silicon MPS (macOS)
+                self.logger.info(f"Device selected: CUDA (NVIDIA GPU). Name: {torch.cuda.get_device_name(0)}")
             elif torch.backends.mps.is_available():
                 self.device = torch.device("mps")
-                self.logger.info("Device selected: MPS (Apple Silicon GPU)")
+                self.logger.info("Device selected: MPS (Apple Silicon)")
             else:
                 self.device = torch.device("cpu")
-                self.logger.info("Device selected: CPU")
+                self.logger.info("Device selected: CPU (No GPU found)")
 
             self.progress_callback = progress_callback
             self.output_include_timestamps = include_timestamps

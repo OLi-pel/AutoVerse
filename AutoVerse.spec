@@ -52,6 +52,8 @@ a = Analysis(
         'sklearn.utils._cython_blas',
         'sklearn.neighbors._quad_tree',
         'sklearn.tree._utils',
+        'torch.distributions',
+        'torch.random',
     ],
     hookspath=['.'],
     hooksconfig={},
