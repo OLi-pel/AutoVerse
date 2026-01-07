@@ -66,6 +66,9 @@ jobs:
         shell: powershell
 
       - name: Build with PyInstaller
+        env:
+          CUDA_VISIBLE_DEVICES: -1 
+          
         run: pyinstaller AutoVerse.spec
 
       - name: Install Inno Setup
