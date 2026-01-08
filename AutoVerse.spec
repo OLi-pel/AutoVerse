@@ -51,7 +51,7 @@ a = Analysis(
         'torchaudio.lib.libtorchaudio',
     ],
     # IMPORTANT: Point to your new hooks folder
-    hookspath=['hooks'], 
+    hookspath=['hook'], 
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
