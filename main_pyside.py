@@ -2,7 +2,11 @@ import sys
 import multiprocessing
 import os
 
+# --- ENVIRONMENT CONFIGURATION ---
+# Fix for some PyTorch operations on CPU (linear algebra)
 os.environ["ATEN_NO_FBGEMM"] = "1"
+# Enable MPS fallback for MacOS to prevent crashes on unsupported operators
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import collections
 import logging

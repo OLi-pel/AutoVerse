@@ -28,18 +28,15 @@ class AudioProcessor:
         self.logger = logger_instance if logger_instance else logger
         
         try:
-            # --- SAFE TORCH CHECK ---
-            # If main_pyside.py failed to fix DLL paths, 'import torch' might have failed silently 
-            # or raised an error caught earlier. We check if torch is actually usable here.
-            if 'torch' not in sys.modules:
-                 try:
-                     import torch
-                 except ImportError as e:
-                     raise ImportError(f"PyTorch could not be imported. This is likely a DLL initialization failure (WinError 1114). Details: {e}")
-
+            # --- FIX: Removed local import check to prevent UnboundLocalError ---
+            # We rely on the global 'import torch' at the top of the file.
+            
             if torch.cuda.is_available():
                 self.device = torch.device("cuda")
                 self.logger.info(f"Device selected: CUDA (NVIDIA GPU). Name: {torch.cuda.get_device_name(0)}")
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+                self.logger.info("Device selected: MPS (Apple Silicon GPU)")
             else:
                 self.device = torch.device("cpu")
                 self.logger.info("Device selected: CPU")
