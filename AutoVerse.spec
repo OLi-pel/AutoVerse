@@ -49,10 +49,19 @@ a = Analysis(
     pathex=[],
     binaries=binaries,
     datas=datas,
-    # The old hiddenimports list was robust. We use that.
+    # --- UPDATED HIDDENIMPORTS ---
     hiddenimports=[
         'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
-        'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
+        'pyannote.audio',
+        # Explicitly include pyannote dynamic modules
+        'pyannote.audio.pipelines',
+        'pyannote.audio.pipelines.speaker_diarization',
+        'pyannote.audio.models',
+        'pyannote.audio.models.segmentation',
+        'pyannote.audio.models.embedding',
+        'asteroid_filterbanks',
+        # Standard dependencies
+        'pandas', 'sklearn', 'tiktoken', 'scipy',
         'moviepy', 'PySide6', 'lightning_fabric', 'transformers',
         'scipy.special.cython_special', 'sklearn.neighbors._typedefs',
         'sklearn.utils._cython_blas', 'sklearn.neighbors._quad_tree',
