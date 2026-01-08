@@ -9,18 +9,16 @@ import shutil
 
 # --- [FIX]: WINDOWS FROZEN BUILD DLL INJECTION ---
 if sys.platform == 'win32':
-    # 1. Standard Environment fixes
+    # 1. Force PyTorch to use AVX (compatible with Ivy Bridge/Optiplex 9010)
+    # This prevents "Illegal Instruction" crashes on older CPUs
+    os.environ["ATEN_CPU_CAPABILITY"] = "avx"
+    
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    
-    # Graphics compatibility for older hardware
     os.environ["QT_API"] = "pyside6"
-    os.environ["QSG_RHI_BACKEND"] = "opengl"
-
+    
     if getattr(sys, 'frozen', False):
         try:
-            # 2. Locate the Bundle Directory
-            # PyInstaller 6+ '_internal' folder or legacy sys._MEIPASS
             base_dir = os.path.dirname(sys.executable)
             if hasattr(sys, '_MEIPASS'):
                 base_dir = sys._MEIPASS
@@ -29,38 +27,28 @@ if sys.platform == 'win32':
 
             torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
 
-            # 3. Add directories to DLL Search Path (Python 3.8+)
-            if hasattr(os, 'add_dll_directory'):
-                try:
-                    os.add_dll_directory(torch_lib_path)
-                except Exception:
-                    pass
-                try:
-                    os.add_dll_directory(base_dir)
-                except Exception:
-                    pass
-
-            # Legacy PATH update
+            # Add to PATH
             os.environ['PATH'] = torch_lib_path + os.pathsep + base_dir + os.pathsep + os.environ['PATH']
+            
+            if hasattr(os, 'add_dll_directory'):
+                try: os.add_dll_directory(torch_lib_path)
+                except: pass
+                try: os.add_dll_directory(base_dir)
+                except: pass
 
-            # 4. CRITICAL: Manually Pre-load Dependencies in Order
-            # Reordered to ensure dependencies (asmjit, libomp) load before dependents (fbgemm, c10)
+            # 2. Pre-load Dependencies in STRICT Order
+            # asmjit -> fbgemm -> c10 -> torch_cpu
             dlls_to_preload = [
                 (base_dir, 'vcruntime140.dll'),
-                (base_dir, 'vcruntime140_1.dll'), # Critical for Exception Handling in c10.dll
                 (base_dir, 'msvcp140.dll'),
-                # OpenMP (Intel or Microsoft)
-                (torch_lib_path, 'libiomp5md.dll'),     
-                (torch_lib_path, 'libomp140.x86_64.dll'), 
-                # MKL / Basic Dependencies
+                (torch_lib_path, 'libiomp5md.dll'),   # Intel OpenMP
+                (torch_lib_path, 'mkl_core.dll'),      # MKL if present
                 (torch_lib_path, 'mkl_intel_thread.dll'),
-                (torch_lib_path, 'asmjit.dll'), # Must load BEFORE fbgemm
-                (torch_lib_path, 'fbgemm.dll'),
-                # Core Torch
+                (torch_lib_path, 'asmjit.dll'),       # CRITICAL: Missing in previous build
+                (torch_lib_path, 'fbgemm.dll'),       # CRITICAL: Missing in previous build
                 (torch_lib_path, 'c10.dll'),
                 (torch_lib_path, 'torch_cpu.dll'),
-                (torch_lib_path, 'torch.dll'),
-                (torch_lib_path, 'torch_python.dll')
+                (torch_lib_path, 'torch.dll')
             ]
 
             print("--- [DEBUG] Starting DLL Injection ---")
@@ -73,14 +61,12 @@ if sys.platform == 'win32':
                     except Exception as e:
                         print(f"--- [DEBUG] FAILED to load {dll_name}: {e}")
                 else:
-                    # Only print if it's a critical torch DLL; some system DLLs might naturally be missing
-                    if 'torch' in folder:
+                    if 'torch' in folder and 'mkl' not in dll_name: # MKL might be optional
                         print(f"--- [DEBUG] Skipped (Not Found): {dll_name}")
-                            
+
         except Exception as e:
             print(f"--- [DEBUG] Critical Error during DLL setup: {e}")
 
-# --- End of Windows Fix ---
 
 try:
     import torch

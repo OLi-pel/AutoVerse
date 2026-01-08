@@ -48,7 +48,6 @@ a = Analysis(
         'sklearn.neighbors._quad_tree',
         'sklearn.tree._utils',
         'passlib.handlers.bcrypt', 
-        'torchaudio.lib.libtorchaudio',
     ],
     # IMPORTANT: Point to your new hooks folder
     hookspath=['hook'], 
