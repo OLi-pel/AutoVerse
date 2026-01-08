@@ -1,72 +1,14 @@
 import sys
 import multiprocessing
 import os
+
+os.environ["ATEN_NO_FBGEMM"] = "1"
+
 import collections
 import logging
 import ctypes
 import site
 import shutil
-
-# --- [FIX]: WINDOWS FROZEN BUILD DLL INJECTION ---
-if sys.platform == 'win32':
-    # 1. Force PyTorch to use AVX (compatible with Ivy Bridge/Optiplex 9010)
-    # This prevents "Illegal Instruction" crashes on older CPUs
-    os.environ["ATEN_CPU_CAPABILITY"] = "avx"
-    
-    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    os.environ["QT_API"] = "pyside6"
-    
-    if getattr(sys, 'frozen', False):
-        try:
-            base_dir = os.path.dirname(sys.executable)
-            if hasattr(sys, '_MEIPASS'):
-                base_dir = sys._MEIPASS
-            elif os.path.exists(os.path.join(base_dir, '_internal')):
-                base_dir = os.path.join(base_dir, '_internal')
-
-            torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
-
-            # Add to PATH
-            os.environ['PATH'] = torch_lib_path + os.pathsep + base_dir + os.pathsep + os.environ['PATH']
-            
-            if hasattr(os, 'add_dll_directory'):
-                try: os.add_dll_directory(torch_lib_path)
-                except: pass
-                try: os.add_dll_directory(base_dir)
-                except: pass
-
-            # 2. Pre-load Dependencies in STRICT Order
-            # asmjit -> fbgemm -> c10 -> torch_cpu
-            dlls_to_preload = [
-                (base_dir, 'vcruntime140.dll'),
-                (base_dir, 'msvcp140.dll'),
-                (torch_lib_path, 'libiomp5md.dll'),   # Intel OpenMP
-                (torch_lib_path, 'mkl_core.dll'),      # MKL if present
-                (torch_lib_path, 'mkl_intel_thread.dll'),
-                (torch_lib_path, 'asmjit.dll'),       # CRITICAL: Missing in previous build
-                (torch_lib_path, 'fbgemm.dll'),       # CRITICAL: Missing in previous build
-                (torch_lib_path, 'c10.dll'),
-                (torch_lib_path, 'torch_cpu.dll'),
-                (torch_lib_path, 'torch.dll')
-            ]
-
-            print("--- [DEBUG] Starting DLL Injection ---")
-            for folder, dll_name in dlls_to_preload:
-                dll_path = os.path.join(folder, dll_name)
-                if os.path.exists(dll_path):
-                    try:
-                        ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
-                        print(f"--- [DEBUG] Loaded: {dll_name}")
-                    except Exception as e:
-                        print(f"--- [DEBUG] FAILED to load {dll_name}: {e}")
-                else:
-                    if 'torch' in folder and 'mkl' not in dll_name: # MKL might be optional
-                        print(f"--- [DEBUG] Skipped (Not Found): {dll_name}")
-
-        except Exception as e:
-            print(f"--- [DEBUG] Critical Error during DLL setup: {e}")
-
 
 try:
     import torch
@@ -756,7 +698,6 @@ def run_app():
     sys.exit(app.exec())
 
 if __name__ == "__main__":
-    configure_ssl_for_bundle()
     multiprocessing.freeze_support()
     multiprocessing.set_start_method('spawn', force=True)
     run_app()

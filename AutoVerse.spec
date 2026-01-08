@@ -3,11 +3,11 @@
 
 import sys
 import os
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 block_cipher = None
 
-# --- Configuration ---
+# Determine the ffmpeg binary path based on the OS.
 if sys.platform == 'win32':
     ffmpeg_binary_name = 'ffmpeg.exe'
 else:
@@ -15,42 +15,51 @@ else:
 
 ffmpeg_local_path = os.path.join('bin', ffmpeg_binary_name)
 
-# --- Data Collection ---
+# Collect datas
 datas = [
-    ('tutorials.json', '.'),
     ('ui/main_window.ui', 'ui'),
     ('assets', 'assets'),
+    ('tutorials.json', '.'), 
     *collect_data_files('lightning_fabric'),
     *collect_data_files('speechbrain'),
     *collect_data_files('pyannote'),
     *collect_data_files('tiktoken'),
     *collect_data_files('transformers'),
     *collect_data_files('whisper'),
+    *copy_metadata('tqdm'),
+    *copy_metadata('regex'),
+    *copy_metadata('requests'),
+    *copy_metadata('packaging'),
+    *copy_metadata('filelock'),
+    *copy_metadata('numpy'),
+    *copy_metadata('tokenizers'),
+    *copy_metadata('huggingface-hub'),
+    *copy_metadata('safetensors'),
+    *copy_metadata('pyyaml'),
 ]
 
-# --- Binary Collection ---
+# Binaries
 binaries = []
 if os.path.exists(ffmpeg_local_path):
     print(f"Bundling FFmpeg from: {ffmpeg_local_path}")
     binaries.append((ffmpeg_local_path, 'bin'))
 
-# --- Analysis ---
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
+    # The old hiddenimports list was robust. We use that.
     hiddenimports=[
-        'scipy.special.cython_special',
-        'scipy.spatial.transform._rotation_groups',
-        'sklearn.neighbors._typedefs',
-        'sklearn.utils._cython_blas',
-        'sklearn.neighbors._quad_tree',
-        'sklearn.tree._utils',
-        'passlib.handlers.bcrypt', 
+        'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
+        'pyannote.audio', 'pandas', 'sklearn', 'tiktoken', 'scipy',
+        'moviepy', 'PySide6', 'lightning_fabric', 'transformers',
+        'scipy.special.cython_special', 'sklearn.neighbors._typedefs',
+        'sklearn.utils._cython_blas', 'sklearn.neighbors._quad_tree',
+        'sklearn.tree._utils'
     ],
-    # IMPORTANT: Point to your new hooks folder
-    hookspath=['hook'], 
+    # REMOVE THE CUSTOM HOOK PATH
+    hookspath=[], 
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
@@ -59,7 +68,6 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
-
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
@@ -71,9 +79,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    # DISABLE UPX to prevent corruption of the C++ Runtime DLLs we just bundled
-    upx=False, 
-    console=True,
+    upx=True,
+    console=True, # Keep True for debugging if it crashes, switch to False later
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -88,7 +95,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     name='AutoVerse_App',
 )
