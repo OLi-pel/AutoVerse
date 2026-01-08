@@ -1,6 +1,6 @@
 # AutoVerse
 
-![AutoVerse Logo](https://raw.githubusercontent.com/OLi-pel/AutoVerse/main/assets/logo.png?raw=true)
+![AutoVerse Logo](https://raw.githubusercontent.com/OLi-pel/AutoVerse/main/assets/logo.png?raw=true) width="150"
 
 **Application de Bureau pour la Transcription et l'Identification des Locuteurs par IA**
 

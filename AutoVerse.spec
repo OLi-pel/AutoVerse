@@ -103,7 +103,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True, # Keep True for debugging
+    console=False, # Keep True for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -129,4 +129,12 @@ if sys.platform == 'darwin':
         name='AutoVerse.app',
         icon=os.path.join('assets', 'logo.icns'),
         bundle_identifier='com.olipel.autoverse',
+        # --- ADDED: Info.plist details for better OS integration ---
+        info_plist={
+            'NSPrincipalClass': 'NSApplication',
+            'CFBundleDisplayName': 'AutoVerse',
+            'CFBundleName': 'AutoVerse',
+            'CFBundleShortVersionString': '1.1.0',
+            'NSHighResolutionCapable': 'True'
+        }
     )
