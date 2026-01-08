@@ -7,8 +7,9 @@ import ctypes
 import site
 import shutil
 
+# --- [FIX]: Reverted Windows initialization to the safe "Old Version" logic ---
 if sys.platform == 'win32':
-    # Allow duplicates to prevent MKL/OMP errors
+    # Allow duplicates to prevent MKL/OMP errors (Standard PyTorch fix)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     
@@ -16,48 +17,8 @@ if sys.platform == 'win32':
     os.environ["QT_API"] = "pyside6"
     os.environ["QSG_RHI_BACKEND"] = "opengl"
     
-    # 1. Determine Base Directory
-    frozen_app = getattr(sys, 'frozen', False)
-    if frozen_app:
-        if hasattr(sys, '_MEIPASS'):
-            base_dir = sys._MEIPASS
-        else:
-            base_dir = os.path.dirname(sys.executable)
-            internal_dir = os.path.join(base_dir, '_internal')
-            if os.path.exists(internal_dir):
-                base_dir = internal_dir # PyInstaller --onedir mode usually here
-            else:
-                base_dir = os.path.dirname(sys.executable) # Fallback to root
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # 2. Add Base Directory to PATH (Crucial for c10.dll to find dependencies)
-    os.environ['PATH'] = base_dir + os.pathsep + os.environ['PATH']
-
-    # 3. Explicitly Pre-load Critical DLLs (OpenMP)
-    # The hook placed this in the root (base_dir).
-    # We DO NOT preload CUDA DLLs; we let Torch load them lazily if hardware exists.
-    critical_dlls = ["libiomp5md.dll"]
-
-    print(f"--- [DEBUG] Bootstrapping DLLs from: {base_dir} ---")
-    
-    for dll_name in critical_dlls:
-        dll_path = os.path.join(base_dir, dll_name)
-        if os.path.exists(dll_path):
-            try:
-                ctypes.CDLL(dll_path)
-                print(f"--- [DEBUG] Successfully pre-loaded: {dll_path}")
-            except Exception as e:
-                print(f"--- [DEBUG] Warning: Failed to pre-load {dll_name}: {e}")
-        else:
-            # Fallback for dev mode (non-frozen)
-            fallback = os.path.join(base_dir, 'torch', 'lib', dll_name)
-            if os.path.exists(fallback):
-                try:
-                    ctypes.CDLL(fallback)
-                    print(f"--- [DEBUG] Pre-loaded from torch/lib: {dll_name}")
-                except Exception:
-                    pass
+    # Removed the complex "Determine Base Directory", "Add to PATH", and "Pre-load DLLs" logic.
+    # This logic was causing the [WinError 1114] conflict by locking DLLs before Torch could initialize.
 
 try:
     import torch
@@ -103,9 +64,10 @@ def _get_bundled_ffmpeg_path():
             base_dir = sys._MEIPASS
         else:
             base_dir = os.path.dirname(sys.executable)
-            if os.path.exists(os.path.join(base_dir, '_internal')):
-                if os.path.exists(os.path.join(base_dir, '_internal', 'bin')):
-                    base_dir = os.path.join(base_dir, '_internal')
+            # Check for _internal folder (PyInstaller 6+ onedir mode)
+            internal_dir = os.path.join(base_dir, '_internal')
+            if os.path.exists(internal_dir) and os.path.exists(os.path.join(internal_dir, 'bin')):
+                base_dir = internal_dir
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -395,12 +357,10 @@ def run_app():
                 self.config_manager.set_show_welcome_wizard(True)
                 self.config_manager.set_last_seen_version(constants.APP_VERSION)
             
-            # --- SAFE WELCOME WIZARD LAUNCH ---
             user_choice = None
             if self.config_manager.get_show_welcome_wizard():
                 try:
                     welcome_dialog = WelcomeDialog(self.current_language, self.window)
-                    # Use a timer to ensure the dialog shows up properly after loop starts
                     if welcome_dialog.exec() == QDialog.Accepted:
                         self.config_manager.set_show_welcome_wizard(not welcome_dialog.dont_show_again_checkbox.isChecked())
                         user_choice = welcome_dialog.choice
@@ -409,7 +369,6 @@ def run_app():
                 except Exception as e:
                     logger.error(f"Failed to show welcome wizard: {e}")
             
-            # Ensure main window is shown regardless of dialog success
             self.window.show()
             if user_choice == 'tutorial': 
                 QTimer.singleShot(100, lambda: self.tutorial_manager.start_tutorial("main_tutorial"))
@@ -561,25 +520,14 @@ def run_app():
         @Slot(int)
         def toggle_speaker_options(self, state):
             is_checked = (state == Qt.CheckState.Checked.value)
-            
-            # --- BUG FIX: CHECK TOKEN FIRST ---
-            # Don't update UI until we verify token presence/adding success.
-            
             if is_checked:
-                # 1. Try to load existing token
                 if not self.config_manager.load_huggingface_token():
-                    # 2. No token? Prompt user
                     self.show_hf_token_dialog(is_mandatory=True)
-                    
-                    # 3. Check again after dialog
                     if not self.config_manager.load_huggingface_token():
-                        # User cancelled. Revert UI check state without re-triggering logic
                         self.window.identify_speakers_checkbutton.blockSignals(True)
                         self.window.identify_speakers_checkbutton.setChecked(False)
                         self.window.identify_speakers_checkbutton.blockSignals(False)
-                        return # Abort enabling UI elements
-
-            # Only reach here if we have a token (or we are unchecking)
+                        return
             self.window.auto_merge_checkbutton.setEnabled(is_checked)
             if not is_checked:
                 self.window.auto_merge_checkbutton.setChecked(False)
@@ -592,7 +540,6 @@ def run_app():
                 if dialog.token != current_token:
                     self.window.huggingface_token_entry.setText(dialog.token); self.config_manager.save_huggingface_token(dialog.token); self.config_manager.set_use_auth_token(bool(dialog.token))
                     QMessageBox.information(self.window, "Token Saved", translations.get_text("msg_token_saved", self.current_language))
-            # The 'elif is_mandatory' logic has been moved to the caller to prevent state conflicts
         
         def set_ui_for_processing(self, is_processing):
             self.window.Audio_file_frame.setEnabled(not is_processing); self.window.Processing_options_frame.setEnabled(not is_processing)
@@ -618,12 +565,9 @@ def run_app():
             self.window.correction_button.setEnabled(False)
             saved_options = self.config_manager.load_processing_options()
             
-            # --- STARTUP TOKEN SYNC ---
-            # Set checkbox based on config, but VERIFY token
             diar_enabled_in_config = saved_options.get(constants.OPTION_DIARIZE, False)
             if diar_enabled_in_config:
                 if not self.config_manager.load_huggingface_token():
-                    # Config says enabled, but token is missing? Disable it.
                     diar_enabled_in_config = False
             
             self.window.identify_speakers_checkbutton.setChecked(diar_enabled_in_config)
@@ -633,7 +577,6 @@ def run_app():
             token = self.config_manager.load_huggingface_token()
             if token: self.window.huggingface_token_entry.setText(token)
             
-            # Re-trigger UI state sync based on the now-verified checkboxes
             self.toggle_speaker_options(Qt.CheckState.Checked.value if self.window.identify_speakers_checkbutton.isChecked() else Qt.CheckState.Unchecked.value)
             
             is_ts_checked = self.window.timestamps_checkbutton_2.isChecked(); ts_check_state = Qt.CheckState.Checked.value if is_ts_checked else Qt.CheckState.Unchecked.value; self.toggle_timestamp_options(ts_check_state)
@@ -717,7 +660,6 @@ def run_app():
                     self.process = None
                     self.set_ui_for_processing(False)
                     if "aborted" not in self.window.status_label.text():
-                        # Don't show error if it finished cleanly but queue is empty (race condition check)
                         pass 
                     if self.tutorial_manager.paused_state:
                         QTimer.singleShot(200, self.tutorial_manager.resume_tutorial)
