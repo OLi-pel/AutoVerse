@@ -7,7 +7,7 @@ import ctypes
 import site
 import shutil
 
-# --- [FIX]: Reverted Windows initialization to the safe "Old Version" logic ---
+# --- [FIX]: Windows Initialization Logic ---
 if sys.platform == 'win32':
     # Allow duplicates to prevent MKL/OMP errors (Standard PyTorch fix)
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -17,8 +17,32 @@ if sys.platform == 'win32':
     os.environ["QT_API"] = "pyside6"
     os.environ["QSG_RHI_BACKEND"] = "opengl"
     
-    # Removed the complex "Determine Base Directory", "Add to PATH", and "Pre-load DLLs" logic.
-    # This logic was causing the [WinError 1114] conflict by locking DLLs before Torch could initialize.
+    # --- DLL PATH FIX FOR FROZEN BUILDS (WinError 1114) ---
+    # We must explicitly add 'torch/lib' to the DLL search path so Windows can find c10.dll and libiomp5md.dll.
+    # We do NOT manually load them (ctypes.CDLL) to avoid the "locking" conflict you saw previously.
+    if getattr(sys, 'frozen', False):
+        try:
+            # Determine base directory (handles PyInstaller 6+ _internal folder)
+            base_dir = os.path.dirname(sys.executable)
+            if hasattr(sys, '_MEIPASS'):
+                base_dir = sys._MEIPASS
+            elif os.path.exists(os.path.join(base_dir, '_internal')):
+                base_dir = os.path.join(base_dir, '_internal')
+
+            torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
+            
+            if os.path.exists(torch_lib_path):
+                # 1. Python 3.8+ Safe DLL Directory Addition
+                if hasattr(os, 'add_dll_directory'):
+                    try:
+                        os.add_dll_directory(torch_lib_path)
+                    except Exception as e:
+                        print(f"Warning: Failed to add_dll_directory for torch: {e}")
+                
+                # 2. Legacy PATH update (Backup for older dependencies)
+                os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
+        except Exception as e:
+            print(f"Warning: Failed to configure DLL paths: {e}")
 
 try:
     import torch
@@ -35,6 +59,8 @@ try:
             AudioMetaData = collections.namedtuple('AudioMetaData', ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'])
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
 except Exception as e:
+    # If this fails, the app will likely crash later when AudioProcessor imports torch again.
+    # We print the error but continue to allow the UI to potentially show an error dialog if possible.
     print(f"--- [DEBUG] Warning during early torch import: {e}")
 
 import ssl
