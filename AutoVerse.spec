@@ -74,7 +74,7 @@ exe = EXE(
     strip=False,
     # DISABLE UPX to prevent corruption of the C++ Runtime DLLs we just bundled
     upx=False, 
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
