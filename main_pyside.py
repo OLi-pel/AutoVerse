@@ -1,7 +1,3 @@
-
-
-
-
 import sys
 import multiprocessing
 import os
@@ -34,8 +30,6 @@ if sys.platform == 'win32':
             torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
 
             # 3. Add directories to DLL Search Path (Python 3.8+)
-            # We must add BOTH the torch/lib folder AND the base directory
-            # (where vcruntime140.dll usually lives)
             if hasattr(os, 'add_dll_directory'):
                 try:
                     os.add_dll_directory(torch_lib_path)
@@ -50,27 +44,38 @@ if sys.platform == 'win32':
             os.environ['PATH'] = torch_lib_path + os.pathsep + base_dir + os.pathsep + os.environ['PATH']
 
             # 4. CRITICAL: Manually Pre-load Dependencies in Order
-            # We attempt to load the VCRuntime first, then OpenMP, then Torch.
+            # Reordered to ensure dependencies (asmjit, libomp) load before dependents (fbgemm, c10)
             dlls_to_preload = [
                 (base_dir, 'vcruntime140.dll'),
                 (base_dir, 'vcruntime140_1.dll'), # Critical for Exception Handling in c10.dll
                 (base_dir, 'msvcp140.dll'),
-                (torch_lib_path, 'libiomp5md.dll'),  # OpenMP
+                # OpenMP (Intel or Microsoft)
+                (torch_lib_path, 'libiomp5md.dll'),     
+                (torch_lib_path, 'libomp140.x86_64.dll'), 
+                # MKL / Basic Dependencies
                 (torch_lib_path, 'mkl_intel_thread.dll'),
+                (torch_lib_path, 'asmjit.dll'), # Must load BEFORE fbgemm
                 (torch_lib_path, 'fbgemm.dll'),
-                (torch_lib_path, 'asmjit.dll'), # Often required by fbgemm/c10
+                # Core Torch
                 (torch_lib_path, 'c10.dll'),
-                (torch_lib_path, 'torch_cpu.dll')
+                (torch_lib_path, 'torch_cpu.dll'),
+                (torch_lib_path, 'torch.dll'),
+                (torch_lib_path, 'torch_python.dll')
             ]
 
+            print("--- [DEBUG] Starting DLL Injection ---")
             for folder, dll_name in dlls_to_preload:
                 dll_path = os.path.join(folder, dll_name)
                 if os.path.exists(dll_path):
                     try:
                         ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
+                        print(f"--- [DEBUG] Loaded: {dll_name}")
                     except Exception as e:
-                        # Print debug but don't stop; some might already be loaded
-                        print(f"--- [DEBUG] Pre-loading {dll_name} failed: {e}")
+                        print(f"--- [DEBUG] FAILED to load {dll_name}: {e}")
+                else:
+                    # Only print if it's a critical torch DLL; some system DLLs might naturally be missing
+                    if 'torch' in folder:
+                        print(f"--- [DEBUG] Skipped (Not Found): {dll_name}")
                             
         except Exception as e:
             print(f"--- [DEBUG] Critical Error during DLL setup: {e}")
