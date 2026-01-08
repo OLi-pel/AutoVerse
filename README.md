@@ -2,208 +2,119 @@
 
 ![AutoVerse Logo](https://raw.githubusercontent.com/OLi-pel/AutoVerse/main/assets/logo.png?raw=true)
 
-**AI-Powered Transcription and Speaker Diarization Desktop Application**
+**Application de Bureau pour la Transcription et l'Identification des Locuteurs par IA**
 
 [![macOS Build](https://github.com/OLi-pel/AutoVerse/actions/workflows/macos-build.yml/badge.svg)](https://github.com/OLi-pel/AutoVerse/actions/workflows/macos-build.yml)
 [![Windows Build](https://github.com/OLi-pel/AutoVerse/actions/workflows/windows-build.yml/badge.svg)](https://github.com/OLi-pel/AutoVerse/actions/workflows/windows-build.yml)
 [![Latest Release](https://img.shields.io/github/v/release/OLi-pel/AutoVerse)](https://github.com/OLi-pel/AutoVerse/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-AutoVerse is a cross-platform desktop application designed to provide high-quality transcription and speaker diarization (speaker identification) for your audio and video files. Built with Python and powered by state-of-the-art AI models, it features a modern step-by-step workflow, automatic updates, and a powerful post-processing editor to refine transcripts to perfection, all while running locally on your machine.
+AutoVerse est une solution tout-en-un pour transformer vos fichiers audio et vidéo en texte. Conçu pour être simple mais puissant, il utilise les dernières avancées en IA pour transcrire la parole et identifier précisément qui parle (diarisation), le tout s'exécutant localement sur votre machine pour une confidentialité totale.
 
 ---
 
-## Features
+## ✨ Fonctionnalités Principales
 
--   **High-Quality Transcription**: Utilizes OpenAI's **Whisper** models, allowing you to choose between speed and accuracy (from `tiny` to `large`).
--   **Speaker Diarization**: Integrates **Pyannote.audio** to automatically detect and label different speakers in your audio.
--   **Comprehensive Media Support**: Process both audio (`.mp3`, `.wav`, etc.) and video (`.mp4`, `.mov`, etc.) files seamlessly.
--   **Batch Processing**: Handle multiple audio/video files simultaneously for efficient workflow.
--   **Modern Step-by-Step Interface**: 
-    -   **Step 1**: Select your audio/video files with drag-and-drop support
-    -   **Step 2**: Configure processing options with collapsible, organized sections
-    -   **Step 3**: Monitor processing and view results in real-time
--   **Welcome Wizard**: Choose between transcribing new files or editing existing transcripts on startup.
--   **Advanced Correction Editor**:
-    -   **Synchronized Playback**: A visual waveform timeline that highlights the text segment being spoken.
-    -   **Full Editing Control**: Edit text, re-assign speakers, and correct timestamps with ease.
-    -   **Segment Manipulation**: Intuitively merge, split, and delete transcription segments.
-    -   **Full Undo/Redo Support**: A robust undo/redo manager ensures a non-destructive editing workflow.
--   **Contextual Tips System**: Built-in help system with status bar tips for all interface elements.
--   **Cross-Platform**: Natively built for both **Windows** and **macOS**.
--   **Auto-Updater**: The application automatically checks for, downloads, and installs new updates from GitHub releases.
+-   **Transcription Haute Précision** : Propulsé par le modèle **Whisper** d'OpenAI.
+-   **Identification des Locuteurs (Diarisation)** : Distingue automatiquement les différents intervenants grâce à **Pyannote.audio**.
+-   **Performance Accélérée par GPU** :
+    -   🚀 **Windows** : Support complet des cartes graphiques NVIDIA (CUDA).
+    -   🍎 **macOS** : Support natif des puces Apple Silicon (M1/M2/M3) via Metal (MPS).
+-   **Éditeur de Correction Avancé** :
+    -   Visualisation de la **forme d'onde** audio synchronisée avec le texte.
+    -   Outils de fusion, division et suppression de segments.
+    -   Ajustement visuel des horodatages (timestamps).
+    -   Gestion complète de l'historique (Annuler/Rétablir).
+-   **Tutoriels Interactifs** : Un guide pas-à-pas intégré dans l'application pour vous apprendre à l'utiliser.
+-   **Mises à jour Automatiques** : L'application télécharge et installe automatiquement les nouvelles versions.
+-   **Traitement par Lots** : Transcrivez plusieurs fichiers en une seule fois.
 
-## Installation
+## 📥 Installation
 
-Download the latest version for your operating system from the [**Releases Page**](https://github.com/OLi-pel/AutoVerse/releases/latest).
+Téléchargez la dernière version pour votre système d'exploitation depuis la [**Page des Releases**](https://github.com/OLi-pel/AutoVerse/releases/latest).
 
 ### macOS
-
-1.  Download the `AutoVerse-macOS-Installer.dmg` file.
-2.  Open the DMG file. A window will appear.
-3.  Drag the `AutoVerse.app` icon into the `Applications` folder icon.
-4.  Launch AutoVerse from your Applications folder.
+1.  Téléchargez le fichier `AutoVerse-macOS-Installer.dmg`.
+2.  Ouvrez le fichier et glissez l'icône `AutoVerse` dans le dossier `Applications`.
+3.  Lancez l'application depuis votre dossier Applications.
 
 ### Windows
+1.  Téléchargez le fichier `AutoVerse-Setup.exe`.
+2.  Lancez l'installateur et suivez les instructions.
+3.  **Note :** Si Windows SmartScreen apparaît, cliquez sur "Informations complémentaires" puis "Exécuter quand même" (l'application n'est pas encore signée numériquement).
 
-1.  Download the `AutoVerse-Setup.exe` file.
-2.  Run the installer and follow the on-screen instructions.
-3.  Launch AutoVerse from the Start Menu or the desktop shortcut.
+## 🚀 Démarrage Rapide
 
-## Getting Started
+L'interface est conçue autour d'un flux de travail simple en 3 étapes.
 
-### First Launch
-1.  Launch AutoVerse. A **Welcome Dialog** will appear asking what you'd like to do:
-    -   **Transcribe a New Audio/Video File**: Start the transcription workflow
-    -   **Edit an Existing Transcript**: Jump directly to the correction editor
-2.  Check "Don't show this again" if you prefer to skip this dialog in future launches.
+### Étape 1 : Sélection des Fichiers
+Glissez-déposez vos fichiers audio ou vidéo (`.mp3`, `.wav`, `.mp4`, `.mov`, etc.) dans la fenêtre principale.
 
-### Transcription Workflow
-The main interface uses a modern **3-step workflow**:
+### Étape 2 : Configuration
+Activez les options selon vos besoins :
+-   **Identifier les locuteurs** : Cochez cette case si plusieurs personnes parlent.
+-   **Horodatages** : Inclure les temps de début et de fin.
+-   **Fusion Auto** : Combine automatiquement les phrases consécutives du même orateur.
 
-**Step 1: Select Audio/Video File(s)**
-1.  Click **Browse** or drag-and-drop to select one or more audio/video files.
-2.  Multiple files will be processed in batch automatically.
-
-**Step 2: Configure Processing Options**
-1.  Choose your desired transcription **Model** (`large` is most accurate).
-2.  **Speaker Options**: Check **Enable Speaker Diarization** to identify different speakers.
-    -   If prompted, provide a Hugging Face 'read' token (one-time setup).
-    -   Advanced options like **Auto-merge** are available in collapsible sections.
-3.  **Timestamp Options**: Configure timestamp inclusion and formatting.
-4.  Click **Continue to Processing** when ready.
-
-**Step 3: Start Processing & View Output**
-1.  Click **Start Processing** to begin transcription.
-2.  Monitor real-time progress with detailed status updates.
-3.  For single files, the **Head to correction tab** button becomes available when complete.
-
-### Editing Transcripts
-1.  In the **Correction tab**, load your transcript and audio files.
-2.  Use the visual waveform timeline for synchronized playback and editing.
-3.  Edit text, reassign speakers, adjust timestamps, and manipulate segments.
-4.  The built-in tips system provides contextual help for all tools.
-5.  Click **Save Changes** to export your refined transcript.
-
-### Tips and Help System
-AutoVerse includes a comprehensive contextual help system:
--   **Toggle Tips**: Use the help icon (❓) in the top-left to enable/disable status bar tips.
--   **Contextual Help**: Hover over any interface element to see helpful tips in the status bar.
--   **Workflow Guidance**: Each step provides summary text to guide you through the process.
-
-## Using Speaker Diarization
-
-The speaker diarization feature relies on powerful models from Hugging Face and requires a free user access token to function. This ensures you have agreed to the terms of use for the models.
-
-Follow these one-time setup steps to enable this feature:
-
-1.  **Create a Hugging Face Account**
-    If you don't have one, [create a free account](https://huggingface.co/join) or [log in](https://huggingface.co/login) to your existing account.
-
-2.  **Accept Model User Agreements**
-    The diarization pipeline uses two main models. You must accept the user conditions for both. Visit each link below, read the terms, and click the **"Agree and access repository"** button.
-    -   **Segmentation Model:** [huggingface.co/pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
-    -   **Diarization Pipeline:** [huggingface.co/pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
-    *(You must be logged in to accept the terms).*
-
-3.  **Generate a "Read-Only" Access Token**
-    -   Navigate to your [Hugging Face Access Tokens settings](https://huggingface.co/settings/tokens).
-    -   Click the **"New token"** button.
-    -   Give the token a descriptive **Name** (e.g., `AutoVerseApp`).
-    -   Select the **`read`** role. This is the most secure option that will still allow the app to download the models.
-    -   Click **"Generate a token"**.
-
-4.  **Copy and Use the Token in AutoVerse**
-    -   Your new token will be displayed (it will look like `hf_...`). Click the copy icon next to it.
-    -   In AutoVerse, check the **"Enable Speaker Diarization"** box. The token input area will appear.
-    -   Paste your token into the field and click the **Save** button. The token will now be saved securely on your machine for all future sessions.
+### Étape 3 : Traitement et Correction
+Cliquez sur **Démarrer le Traitement**. Une fois terminé, cliquez sur **Aller à l'onglet Correction** pour peaufiner votre transcription dans l'éditeur visuel.
 
 ---
 
-## Auto-Updates
+## 🔐 Configuration de l'Identification des Locuteurs
 
-AutoVerse includes a built-in auto-update system that keeps your application current with the latest features and bug fixes.
+Pour utiliser la fonction de détection des locuteurs, vous devez obtenir un jeton d'accès gratuit (Token) de Hugging Face. C'est une étape unique nécessaire pour accepter les conditions d'utilisation des modèles IA.
 
-### How It Works
--   **Automatic Checking**: The app checks for updates from the GitHub releases when launched (frozen builds only).
--   **User Control**: You're always prompted before downloading and installing updates.
--   **Seamless Installation**: Updates download in the background and install automatically.
--   **Platform-Specific**: Handles macOS `.app` bundles and Windows executables correctly.
+1.  **Créer un compte Hugging Face**
+    Rendez-vous sur [huggingface.co/join](https://huggingface.co/join) (gratuit).
 
-### Update Process
-1.  When an update is available, you'll see a notification with release notes.
-2.  Choose "Yes" to download and install, or "No" to skip.
-3.  The app downloads the update and handles installation automatically.
-4.  AutoVerse will restart with the new version.
+2.  **Accepter les conditions d'utilisation**
+    Visitez ces deux pages et cliquez sur le bouton pour accepter les conditions :
+    -   [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+    -   [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1)
 
-### Manual Updates
-If you prefer manual updates or encounter issues:
-1.  Visit the [Releases Page](https://github.com/OLi-pel/AutoVerse/releases/latest)
-2.  Download the appropriate installer for your platform
-3.  Install following the standard installation process
+3.  **Créer un Token**
+    -   Allez dans vos [Paramètres de Tokens](https://huggingface.co/settings/tokens).
+    -   Créez un nouveau token avec le rôle **"Read"**.
+    -   Copiez le token (il commence par `hf_...`).
+
+4.  **Dans AutoVerse**
+    -   Cochez la case "Identifier les différents locuteurs".
+    -   Collez votre token et cliquez sur **Gérer le Token** -> **Sauvegarder**.
 
 ---
 
-### Why is a Token Required?
+## 🛠️ Pour les Développeurs
 
-An access token acts as a key that proves to Hugging Face that you are an authenticated user who has accepted the license and terms of use for their pre-trained models. This allows the application to download the necessary files on your behalf.
+Si vous souhaitez exécuter l'application depuis le code source :
 
-> **Important Security Note**
-> Your Hugging Face access token is a personal secret and should be treated like a password. Do not share it publicly or commit it to version control. It identifies your activity to Hugging Face.
+**Prérequis :**
+-   Python 3.12+
+-   FFmpeg (doit être accessible dans le PATH système ou dans un dossier `bin/` à la racine)
 
-## For Developers (Running from Source)
+**Installation :**
 
-Interested in contributing or running the development version? Follow these steps.
+```bash
+# Cloner le dépôt
+git clone https://github.com/OLi-pel/AutoVerse.git
+cd AutoVerse
 
-**Prerequisites:**
--   [Python 3.11+](https://www.python.org/)
--   [Git](https://git-scm.com/)
--   **FFmpeg**:
-    -   **macOS**: `brew install ffmpeg`
-    -   **Windows**: Download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) and add to your system's PATH.
--   **PortAudio** (for macOS only):
-    -   `brew install portaudio`
+# Créer un environnement virtuel
+python -m venv venv
+# Activer (Mac/Linux): source venv/bin/activate
+# Activer (Windows): .\venv\Scripts\activate
 
-**Setup:**
+# Installer les dépendances
+# Note : Sur Windows, installez d'abord PyTorch avec support CUDA manuellement si nécessaire
+pip install -r requirements.txt
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/OLi-pel/AutoVerse.git
-    cd AutoVerse
-    ```
+# Lancer l'application
+python main_pyside.py
+```
 
-2.  **Create and activate a virtual environment:**
-    ```bash
-    # For macOS/Linux
-    python3 -m venv venv
-    source venv/bin/activate
+## Licence
 
-    # For Windows
-    python -m venv venv
-    .\venv\Scripts\activate
-    ```
+Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
 
-3.  **Install the required dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Run the application:**
-    ```bash
-    python main_pyside.py
-    ```
-
-## Technology Stack
-
--   **Application Framework**: Python 3.11+ & PySide6 (Qt6 for Python)
--   **Transcription**: [openai-whisper](https://github.com/openai/whisper)
--   **Speaker Diarization**: [pyannote.audio](https://github.com/pyannote/pyannote-audio)
--   **Audio/Video Handling**: MoviePy, PyAudio, SoundFile, TorchAudio
--   **UI Components**: Custom collapsible widgets, waveform visualization
--   **Auto-Updates**: GitHub Releases API integration
--   **Packaging**: PyInstaller with custom hooks
--   **Installers**: [create-dmg](https://github.com/create-dmg/create-dmg) for macOS, [Inno Setup](https://jrsoftware.org/isinfo.php) for Windows
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+---
+*Développé avec ❤️ par Olivier.*

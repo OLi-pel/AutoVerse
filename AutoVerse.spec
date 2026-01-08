@@ -3,7 +3,7 @@
 
 import sys
 import os
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata, collect_all
 
 block_cipher = None
 
@@ -15,13 +15,17 @@ else:
 
 ffmpeg_local_path = os.path.join('bin', ffmpeg_binary_name)
 
+# --- COLLECT ALL SPEECHBRAIN ---
+# speechbrain does runtime directory scanning, so we need full collection
+sb_datas, sb_binaries, sb_hiddenimports = collect_all('speechbrain')
+
 # Collect datas
 datas = [
     ('ui/main_window.ui', 'ui'),
     ('assets', 'assets'),
     ('tutorials.json', '.'), 
     *collect_data_files('lightning_fabric'),
-    *collect_data_files('speechbrain'),
+    # Removed manual collect_data_files('speechbrain') as collect_all covers it
     *collect_data_files('pyannote'),
     *collect_data_files('tiktoken'),
     *collect_data_files('transformers'),
@@ -38,36 +42,46 @@ datas = [
     *copy_metadata('pyyaml'),
 ]
 
+# Append speechbrain datas
+datas += sb_datas
+
 # Binaries
 binaries = []
 if os.path.exists(ffmpeg_local_path):
     print(f"Bundling FFmpeg from: {ffmpeg_local_path}")
     binaries.append((ffmpeg_local_path, 'bin'))
 
+# Append speechbrain binaries
+binaries += sb_binaries
+
+# Define hidden imports
+hidden_imports_list = [
+    'torch', 'torchaudio', 'soundfile', 'pyaudio', 
+    'pyannote.audio',
+    # Explicitly include pyannote dynamic modules (Crucial for pipeline loading)
+    'pyannote.audio.pipelines',
+    'pyannote.audio.pipelines.speaker_diarization',
+    'pyannote.audio.models',
+    'pyannote.audio.models.segmentation',
+    'pyannote.audio.models.embedding',
+    'asteroid_filterbanks',
+    # Standard dependencies
+    'pandas', 'sklearn', 'tiktoken', 'scipy',
+    'moviepy', 'PySide6', 'lightning_fabric', 'transformers',
+    'scipy.special.cython_special', 'sklearn.neighbors._typedefs',
+    'sklearn.utils._cython_blas', 'sklearn.neighbors._quad_tree',
+    'sklearn.tree._utils'
+]
+
+# Append speechbrain hidden imports
+hidden_imports_list += sb_hiddenimports
+
 a = Analysis(
     ['main_pyside.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
-    # --- UPDATED HIDDENIMPORTS ---
-    hiddenimports=[
-        'torch', 'torchaudio', 'soundfile', 'pyaudio', 'speechbrain',
-        'pyannote.audio',
-        # Explicitly include pyannote dynamic modules
-        'pyannote.audio.pipelines',
-        'pyannote.audio.pipelines.speaker_diarization',
-        'pyannote.audio.models',
-        'pyannote.audio.models.segmentation',
-        'pyannote.audio.models.embedding',
-        'asteroid_filterbanks',
-        # Standard dependencies
-        'pandas', 'sklearn', 'tiktoken', 'scipy',
-        'moviepy', 'PySide6', 'lightning_fabric', 'transformers',
-        'scipy.special.cython_special', 'sklearn.neighbors._typedefs',
-        'sklearn.utils._cython_blas', 'sklearn.neighbors._quad_tree',
-        'sklearn.tree._utils'
-    ],
-    # REMOVE THE CUSTOM HOOK PATH
+    hiddenimports=hidden_imports_list,
     hookspath=[], 
     hooksconfig={},
     runtime_hooks=[],
@@ -89,7 +103,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True, # Keep True for debugging if it crashes, switch to False later
+    console=True, # Keep True for debugging
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
