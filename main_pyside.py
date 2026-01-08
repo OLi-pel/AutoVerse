@@ -1,3 +1,7 @@
+
+
+
+
 import sys
 import multiprocessing
 import os
@@ -8,9 +12,6 @@ import site
 import shutil
 
 # --- [FIX]: WINDOWS FROZEN BUILD DLL INJECTION ---
-# This block must run BEFORE 'import torch' or any library that uses OpenMP (like numpy).
-# It resolves [WinError 1114] by forcing the loading of libiomp5md.dll and c10.dll
-# from the internal bundle directory.
 if sys.platform == 'win32':
     # 1. Standard Environment fixes
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -32,32 +33,44 @@ if sys.platform == 'win32':
 
             torch_lib_path = os.path.join(base_dir, 'torch', 'lib')
 
-            # 3. Add to DLL Search Path (Python 3.8+)
-            if os.path.exists(torch_lib_path):
-                # Add directory to search path
-                os.add_dll_directory(torch_lib_path)
-                # Update PATH environment variable as fallback
-                os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ['PATH']
+            # 3. Add directories to DLL Search Path (Python 3.8+)
+            # We must add BOTH the torch/lib folder AND the base directory
+            # (where vcruntime140.dll usually lives)
+            if hasattr(os, 'add_dll_directory'):
+                try:
+                    os.add_dll_directory(torch_lib_path)
+                except Exception:
+                    pass
+                try:
+                    os.add_dll_directory(base_dir)
+                except Exception:
+                    pass
 
-                # 4. CRITICAL: Manually Pre-load Dependencies
-                # c10.dll often fails because libiomp5md.dll isn't initialized.
-                # We load them explicitly in dependency order.
-                dlls_to_preload = [
-                    'libiomp5md.dll',  # OpenMP Runtime (Critical)
-                    'mkl_intel_thread.dll', # Intel MKL Threading (If present)
-                    'fbgemm.dll',      # Facebook GEMM (If present)
-                    'c10.dll',         # PyTorch Core (The one crashing)
-                    'torch_cpu.dll'    # PyTorch CPU
-                ]
+            # Legacy PATH update
+            os.environ['PATH'] = torch_lib_path + os.pathsep + base_dir + os.pathsep + os.environ['PATH']
 
-                for dll_name in dlls_to_preload:
-                    dll_path = os.path.join(torch_lib_path, dll_name)
-                    if os.path.exists(dll_path):
-                        try:
-                            ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
-                        except Exception as e:
-                            # We don't crash here; some might be already loaded or not strictly required immediately
-                            print(f"--- [DEBUG] Pre-loading {dll_name} skipped/failed: {e}")
+            # 4. CRITICAL: Manually Pre-load Dependencies in Order
+            # We attempt to load the VCRuntime first, then OpenMP, then Torch.
+            dlls_to_preload = [
+                (base_dir, 'vcruntime140.dll'),
+                (base_dir, 'vcruntime140_1.dll'), # Critical for Exception Handling in c10.dll
+                (base_dir, 'msvcp140.dll'),
+                (torch_lib_path, 'libiomp5md.dll'),  # OpenMP
+                (torch_lib_path, 'mkl_intel_thread.dll'),
+                (torch_lib_path, 'fbgemm.dll'),
+                (torch_lib_path, 'asmjit.dll'), # Often required by fbgemm/c10
+                (torch_lib_path, 'c10.dll'),
+                (torch_lib_path, 'torch_cpu.dll')
+            ]
+
+            for folder, dll_name in dlls_to_preload:
+                dll_path = os.path.join(folder, dll_name)
+                if os.path.exists(dll_path):
+                    try:
+                        ctypes.CDLL(dll_path, mode=ctypes.RTLD_GLOBAL)
+                    except Exception as e:
+                        # Print debug but don't stop; some might already be loaded
+                        print(f"--- [DEBUG] Pre-loading {dll_name} failed: {e}")
                             
         except Exception as e:
             print(f"--- [DEBUG] Critical Error during DLL setup: {e}")
@@ -79,7 +92,6 @@ try:
             AudioMetaData = collections.namedtuple('AudioMetaData', ['sample_rate', 'num_frames', 'num_channels', 'bits_per_sample', 'encoding'])
             setattr(torchaudio, 'AudioMetaData', AudioMetaData)
 except Exception as e:
-    # If pre-loading worked, this should not trigger. If it does, we print but try to continue.
     print(f"--- [DEBUG] Warning during early torch import: {e}")
 
 import ssl
