@@ -47,7 +47,7 @@ jobs:
         run: |
           # 1. Force Install CUDA-enabled PyTorch (Hybrid Build)
           # Pointing to the cu121 (CUDA 12.1) index ensures we get the large 2.5GB package
-          uv pip install --system torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+          uv pip install --system torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           
           # 2. Filter requirements to remove torch (since we just installed it)
           Get-Content requirements.txt | Where-Object { $_ -notmatch '^torch' } | Set-Content requirements_filtered.txt
