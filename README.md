@@ -1,7 +1,5 @@
 # AutoVerse
 
-![AutoVerse Logo](https://raw.githubusercontent.com/OLi-pel/AutoVerse/main/assets/logo.png?raw=true) width="150"
-
 **Application de Bureau pour la Transcription et l'Identification des Locuteurs par IA**
 
 [![macOS Build](https://github.com/OLi-pel/AutoVerse/actions/workflows/macos-build.yml/badge.svg)](https://github.com/OLi-pel/AutoVerse/actions/workflows/macos-build.yml)
